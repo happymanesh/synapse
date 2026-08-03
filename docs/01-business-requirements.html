@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SIHL Synapse — Business Requirements Specification</title>
+<link rel="stylesheet" href="assets/print.css">
+</head>
+<body>
+
+<section class="cover">
+  <div class="cover-band">
+    <div class="product">Shah Investor's Home Limited</div>
+    <h1>Synapse</h1>
+    <div class="sub">Business Requirements Specification</div>
+  </div>
+  <div class="cover-meta">
+    <table>
+      <tr><td>Document</td><td>Business Requirements Specification (BRS)</td></tr>
+      <tr><td>System</td><td>Synapse — centralised access and reporting platform</td></tr>
+      <tr><td>Organisation</td><td>Shah Investor's Home Limited (SIHL), SEBI-registered stockbroker</td></tr>
+      <tr><td>Version</td><td>1.0</td></tr>
+      <tr><td>Status</td><td>Draft for review</td></tr>
+      <tr><td>Audience</td><td>Business stakeholders, product owners, compliance, project sponsors</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>Purpose and Scope
+      <ol><li>Purpose</li><li>In scope</li><li>Out of scope</li></ol></li>
+    <li>Business Context</li>
+    <li>Stakeholders and User Roles</li>
+    <li>Business Objectives</li>
+    <li>Functional Requirements
+      <ol>
+        <li>Authentication and access control</li>
+        <li>Multi-application portal</li>
+        <li>Navigation and personalisation</li>
+        <li>Dynamic reporting</li>
+        <li>Dynamic data entry</li>
+        <li>Notifications and messaging</li>
+        <li>Administration</li>
+        <li>Usage analytics</li>
+      </ol></li>
+    <li>Business Rules</li>
+    <li>Non-Functional Requirements</li>
+    <li>Assumptions, Dependencies and Constraints</li>
+    <li>Future Phases</li>
+    <li>Glossary</li>
+  </ol>
+</section>
+
+<h2 class="new-page">1. Purpose and Scope</h2>
+
+<h3>1.1 Purpose</h3>
+<p>Synapse is an internal web platform that gives SIHL staff a <strong>single sign-on entry point to several business applications</strong>, together with a reporting and data-entry engine that business users can extend <em>without software development</em>.</p>
+<p>Today, adding a new report to an internal system typically requires a development cycle: specification, code change, testing, release. Synapse removes that dependency for a large class of requirements. An authorised administrator composes a report from reusable filter components and a query definition, and it becomes available to the intended users immediately.</p>
+
+<h3>1.2 In scope</h3>
+<ul>
+  <li>Centralised authentication with password policy, login auditing and optional IP restriction.</li>
+  <li>A multi-application portal: one login, several products, each with its own menu structure.</li>
+  <li>Role-based authorisation down to individual menu options.</li>
+  <li>An administrator-driven reporting engine, including filters, formatting, totals, export and drill-down.</li>
+  <li>The same engine reused as a data-entry form for adding, editing and deleting records.</li>
+  <li>Internal notifications, targeted at a hierarchy level or an individual, with optional scheduling.</li>
+  <li>Administration screens for every master entity the platform depends on.</li>
+  <li>Usage analytics driving a "frequently used options" shortcut list.</li>
+</ul>
+
+<h3>1.3 Out of scope</h3>
+<ul>
+  <li>Outbound email or SMS delivery. Requests are captured for follow-up; no gateway is integrated.</li>
+  <li>Client-facing (external) access. All users in this phase are internal.</li>
+  <li>Trading, order management, settlement or accounting functionality. Synapse reports on and administers data; it does not execute business transactions.</li>
+  <li>Migration of existing reports from legacy systems.</li>
+</ul>
+
+<h2>2. Business Context</h2>
+<p>SIHL operates across multiple business lines and a distribution network of branches, franchisees, sub-brokers and remisiers. Staff in different parts of the organisation need access to different systems and different subsets of data, governed by both the <strong>company</strong> they belong to and their position in the organisational <strong>hierarchy</strong>.</p>
+<p>Two recurring problems motivate this platform:</p>
+<ul>
+  <li><strong>Fragmented access.</strong> Separate logins per system create credential sprawl, inconsistent access revocation when staff move or leave, and no single view of who can reach what.</li>
+  <li><strong>Reporting bottleneck.</strong> Every new report or data-capture screen competes for development capacity, so operational teams wait weeks for information they need routinely.</li>
+</ul>
+<p>Synapse addresses both: one identity and authorisation model shared across applications, and a configuration-driven engine that shifts routine report creation from developers to administrators.</p>
+
+<h2>3. Stakeholders and User Roles</h2>
+<p>Users are classified by <strong>hierarchy</strong>, which is a distinct concept from <strong>role</strong>. Hierarchy describes <em>who the person is</em> within the organisation; role describes <em>what they may do</em>. Authorisation is evaluated against the combination of company, hierarchy and role.</p>
+
+<table class="data">
+  <tr><th>Hierarchy</th><th>Code</th><th>Typical interest in the platform</th></tr>
+  <tr><td>Management</td><td>0000</td><td>Consolidated performance reporting and oversight</td></tr>
+  <tr><td>CSO</td><td>0100</td><td>Customer servicing, client queries, operational reports</td></tr>
+  <tr><td>Employee</td><td>0200</td><td>Day-to-day operational reports and data entry</td></tr>
+  <tr><td>Branch</td><td>0300</td><td>Branch-level business performance</td></tr>
+  <tr><td>Franchisee</td><td>0400</td><td>Own-network business and payout information</td></tr>
+  <tr><td>Sub-broker</td><td>0500</td><td>Own-network business and payout information</td></tr>
+  <tr><td>Remisier</td><td>0600</td><td>Own-network business and payout information</td></tr>
+  <tr><td>Family</td><td>0700</td><td>Grouped client relationships</td></tr>
+  <tr><td>Client</td><td>0800</td><td>Reserved for a later client-facing phase</td></tr>
+  <tr><td>Admin</td><td>9999</td><td>Platform administration and configuration</td></tr>
+</table>
+
+<div class="note"><strong>Note.</strong> A user holds one hierarchy but may hold several roles. Menus are granted to roles, and a user receives the union of the menus granted to their active roles, restricted to their own company and hierarchy.</div>
+
+<h2>4. Business Objectives</h2>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Objective</th><th>Success indicator</th></tr>
+  <tr><td class="id">OBJ-1</td><td>Provide one login across all internal applications</td><td>A user reaches every application they are entitled to without re-authenticating</td></tr>
+  <tr><td class="id">OBJ-2</td><td>Remove development dependency for routine reports</td><td>New reports are published by an administrator without a code release</td></tr>
+  <tr><td class="id">OBJ-3</td><td>Make access rights auditable and revocable in one place</td><td>Removing a role immediately withdraws the corresponding menus and applications</td></tr>
+  <tr><td class="id">OBJ-4</td><td>Ensure users only see data they are entitled to</td><td>Reports are scoped by company and hierarchy; user-entered records are private to their author</td></tr>
+  <tr><td class="id">OBJ-5</td><td>Reduce the effort of reaching frequently needed screens</td><td>Favourites and usage-based shortcuts on the landing page</td></tr>
+  <tr><td class="id">OBJ-6</td><td>Communicate operational messages reliably to defined audiences</td><td>Notifications reach a hierarchy or an individual, with read tracking</td></tr>
+</table>
+
+<h2 class="new-page">5. Functional Requirements</h2>
+
+<h3>5.1 Authentication and access control</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-1.1</td><td>Users authenticate with a username and password.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.2</td><td>Passwords must meet a defined complexity policy: minimum eight characters, at least one uppercase letter, one digit and one special character, and must not equal the username.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.3</td><td>A new password must not match any of the user's recent previous passwords.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.4</td><td>Every login attempt, successful or failed, is recorded with timestamp, outcome, failure reason, IP address and user agent.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.5</td><td>A user may optionally be restricted to one or more IP address patterns. A user with no active restriction may log in from any network.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.6</td><td>Sessions expire automatically after a defined period of validity.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.7</td><td>Users may request assistance for a forgotten user ID or a password reset. These requests are captured for staff follow-up.</td><td>Should</td></tr>
+  <tr><td class="id">FR-1.8</td><td>Administrators may reset a user's password directly.</td><td>Must</td></tr>
+</table>
+
+<h3>5.2 Multi-application portal</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-2.1</td><td>The platform hosts multiple applications, each belonging to a company, each with its own name, icon or logo and display order.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.2</td><td>An application switcher in the top-right corner lists the applications the signed-in user may open, showing each application's logo and name.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.3</td><td>Selecting an application replaces the menu structure with that application's menus.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.4</td><td>The name of the currently open application is displayed in the top bar, visually separated from the product name and the search field.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.5</td><td>The system remembers the last application a user opened and reopens it at their next login.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.6</td><td>When the user has enabled the "new window" preference, selecting an application opens it in a new browser tab.</td><td>Should</td></tr>
+  <tr><td class="id">FR-2.7</td><td>Menu search, favourites and usage shortcuts reflect only the currently open application.</td><td>Must</td></tr>
+</table>
+
+<h3>5.3 Navigation and personalisation</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-3.1</td><td>Menus support three levels: main menu, sub-menu and menu option.</td><td>Must</td></tr>
+  <tr><td class="id">FR-3.2</td><td>A menu option may open an internal screen, a configured report, or an external web address.</td><td>Must</td></tr>
+  <tr><td class="id">FR-3.3</td><td>The menu panel can be collapsed to an icon rail to maximise working area; collapsed items reveal their children on selection.</td><td>Must</td></tr>
+  <tr><td class="id">FR-3.4</td><td>Opening a main menu closes any other open main menu, so only one section is expanded at a time.</td><td>Should</td></tr>
+  <tr><td class="id">FR-3.5</td><td>The currently selected menu option is visually indicated.</td><td>Should</td></tr>
+  <tr><td class="id">FR-3.6</td><td>A search field locates menu options by name or by their position in the menu structure, showing the full path for each match.</td><td>Must</td></tr>
+  <tr><td class="id">FR-3.7</td><td>Users may mark any menu option as a favourite and reach it from the dashboard.</td><td>Should</td></tr>
+  <tr><td class="id">FR-3.8</td><td>Users may choose a visual theme, a vertical or horizontal menu layout, and an interface language.</td><td>Should</td></tr>
+  <tr><td class="id">FR-3.9</td><td>The interface is available in English and nine Indian regional languages.</td><td>Should</td></tr>
+</table>
+
+<h3>5.4 Dynamic reporting</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-4.1</td><td>Administrators define reusable filter components — text, number, date, date range, dropdown, multi-select, checkbox and radio — once, and reuse them across many reports.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.2</td><td>Dropdown options may be a fixed list or drawn from a query, and one dropdown may depend on another so that its options narrow accordingly.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.3</td><td>Administrators arrange filter components into a named filter, controlling row and position, mandatory status, label and default value.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.4</td><td>A report binds a filter to a query definition and to display settings.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.5</td><td>Mandatory filters must be supplied before a report will run.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.6</td><td>Date ranges are validated: the start date may not be in the future and the end date must follow the start date.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.7</td><td>Each column has a declared data type controlling its formatting and alignment: dates as <code>dd-Mmm-yyyy</code>, numbers right-aligned with configurable decimal places, text left-aligned.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.8</td><td>Results can be sorted by any column, with dates and numbers sorted by value rather than by their displayed text.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.9</td><td>Selected columns may display a total in the footer.</td><td>Should</td></tr>
+  <tr><td class="id">FR-4.10</td><td>Rows may be highlighted automatically according to configured conditions.</td><td>Should</td></tr>
+  <tr><td class="id">FR-4.11</td><td>Leading columns may be frozen so they remain visible while scrolling horizontally.</td><td>Should</td></tr>
+  <tr><td class="id">FR-4.12</td><td>If a result exceeds the configured maximum row count, the report is not rendered on screen; the user is offered a download instead.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.13</td><td>Results can be exported to CSV, named consistently as <code>{username}_{timestamp}.csv</code>.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.14</td><td>The parameter panel can be hidden to give the results the full working area, and its state is indicated on the breadcrumb line.</td><td>Should</td></tr>
+  <tr><td class="id">FR-4.15</td><td>A column may be configured to drill into another report, either as a full page with a back link or as a popup window.</td><td>Should</td></tr>
+  <tr><td class="id">FR-4.16</td><td>Returning from a drill-down restores the originating report exactly as it was left, including its filter values and results.</td><td>Must</td></tr>
+</table>
+
+<h3>5.5 Dynamic data entry</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-5.1</td><td>The same filter definition may be used as a data-entry form for adding, editing and deleting records in a target table.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.2</td><td>Each form field is mapped to a column in the target table.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.3</td><td>Records created through a form are visible and editable only to the user who created them.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.4</td><td>Every record records who created it, who last updated it and when.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.5</td><td>A user's own saved records are listed beneath the form, with edit and delete actions; deletion requires confirmation.</td><td>Must</td></tr>
+</table>
+
+<h3>5.6 Notifications and messaging</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-6.1</td><td>Administrators compose messages addressed either to an entire hierarchy or to one named individual.</td><td>Must</td></tr>
+  <tr><td class="id">FR-6.2</td><td>A message may be delivered as a popup on the recipient's next sign-in, as an entry in the notification bell list, or both.</td><td>Must</td></tr>
+  <tr><td class="id">FR-6.3</td><td>A message may be scheduled; recipients do not see it before the scheduled date and time.</td><td>Must</td></tr>
+  <tr><td class="id">FR-6.4</td><td>The notification bell shows a count of unread messages and lists messages with their timestamps.</td><td>Must</td></tr>
+  <tr><td class="id">FR-6.5</td><td>Read status is tracked per recipient.</td><td>Must</td></tr>
+</table>
+
+<h3>5.7 Administration</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-7.1</td><td>Administrators maintain the following masters: Company, App, Hierarchy, Client Category, User IP Mapping, Menu, Role, User, Filter Components, Filters, Reports and Notifications.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.2</td><td>Every administration screen supports create, edit and delete, with validation messages shown against the offending field.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.3</td><td>Every administration screen provides a free-text search and, where applicable, a filter by company.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.4</td><td>Administration lists can be exported to CSV, reflecting the current search and filter selection.</td><td>Should</td></tr>
+  <tr><td class="id">FR-7.5</td><td>Menus are assigned to roles, and roles are assigned to users, each through a checklist that shows enough detail to identify the item.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.6</td><td>Fields that do not apply to the current selection are hidden rather than shown as inapplicable.</td><td>Should</td></tr>
+  <tr><td class="id">FR-7.7</td><td>Reference fields are displayed by name rather than by code wherever a name exists.</td><td>Should</td></tr>
+</table>
+
+<h3>5.8 Usage analytics</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-8.1</td><td>Each menu selection is recorded with its timestamp, company, application, main menu, sub-menu and menu option.</td><td>Must</td></tr>
+  <tr><td class="id">FR-8.2</td><td>Usage records are retained for seven days and removed automatically thereafter.</td><td>Must</td></tr>
+  <tr><td class="id">FR-8.3</td><td>The dashboard shows the five most frequently used options, beneath Favourites and presented in the same style.</td><td>Must</td></tr>
+  <tr><td class="id">FR-8.4</td><td>Recording usage must not delay or interfere with navigation.</td><td>Must</td></tr>
+</table>
+
+<h2 class="new-page">6. Business Rules</h2>
+<p>These rules govern behaviour that is not self-evident from the requirements above and must be preserved in any future change.</p>
+
+<table class="data">
+  <tr><th class="id">Ref</th><th>Rule</th><th>Rationale</th></tr>
+  <tr><td class="id">BR-1</td><td>A user's access to an application is <strong>derived</strong>, not assigned. A user may open an application if any menu they are entitled to belongs to that application.</td><td>Removes a second permission list that could contradict menu permissions. Granting a menu is sufficient and unambiguous.</td></tr>
+  <tr><td class="id">BR-2</td><td>A menu that is not assigned to any application is <strong>global</strong> and appears in every application. A global menu does not itself grant access to any application.</td><td>Administration must remain reachable regardless of the application in use; otherwise an administrator could switch application and lose the ability to switch back.</td></tr>
+  <tr><td class="id">BR-3</td><td>Menu permissions are evaluated as the union of the user's active roles, restricted to the user's own company and hierarchy.</td><td>The same role code may exist for several companies or hierarchies with different meaning.</td></tr>
+  <tr><td class="id">BR-4</td><td>Records created through a data-entry form are visible only to their creator. The restriction is enforced by the system, not by report configuration.</td><td>A report author cannot accidentally expose another user's records by omitting a condition.</td></tr>
+  <tr><td class="id">BR-5</td><td>A scheduled notification is simply not visible before its scheduled time; no separate send action exists.</td><td>Avoids a background dispatch process and the failure modes that come with it.</td></tr>
+  <tr><td class="id">BR-6</td><td>Usage records older than seven days are deleted. Reporting on usage never considers records outside that window.</td><td>Satisfies the retention limit even if housekeeping is delayed.</td></tr>
+  <tr><td class="id">BR-7</td><td>Deactivating an application, or withdrawing the role that granted it, silently returns the user to their first available application at the next sign-in.</td><td>A withdrawn entitlement must never leave a user unable to sign in.</td></tr>
+  <tr><td class="id">BR-8</td><td>Where a summary report and its detail report are intended to share filter values, both must use the same filter component. Values carry across automatically; there is no separate mapping to maintain.</td><td>Keeps drill-down configuration to a single decision and prevents mismatched mappings.</td></tr>
+  <tr><td class="id">BR-9</td><td>Downloaded files are always named <code>{username}_{timestamp}</code>.</td><td>Makes the origin of a shared file identifiable.</td></tr>
+</table>
+
+<h2>7. Non-Functional Requirements</h2>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Category</th><th>Requirement</th></tr>
+  <tr><td class="id">NFR-1</td><td>Security</td><td>Passwords are stored only as salted hashes and are never recoverable or displayed.</td></tr>
+  <tr><td class="id">NFR-2</td><td>Security</td><td>Values entered by users are never combined textually into database queries.</td></tr>
+  <tr><td class="id">NFR-3</td><td>Security</td><td>Only administrators may create or change report and filter definitions.</td></tr>
+  <tr><td class="id">NFR-4</td><td>Security</td><td>Session identifiers are held in a cookie inaccessible to page scripts.</td></tr>
+  <tr><td class="id">NFR-5</td><td>Auditability</td><td>Login attempts and record ownership are retained for review. Usage analytics are retained for seven days only.</td></tr>
+  <tr><td class="id">NFR-6</td><td>Performance</td><td>Menu and application permissions are resolved once per page request.</td></tr>
+  <tr><td class="id">NFR-7</td><td>Performance</td><td>Recording menu usage must not add perceptible delay to navigation.</td></tr>
+  <tr><td class="id">NFR-8</td><td>Performance</td><td>Reports must not attempt to render result sets beyond their configured maximum; an export path is offered instead.</td></tr>
+  <tr><td class="id">NFR-9</td><td>Usability</td><td>Navigation must keep the top bar and menu continuously visible and usable while a screen loads.</td></tr>
+  <tr><td class="id">NFR-10</td><td>Usability</td><td>Dates are presented consistently as <code>dd-Mmm-yyyy</code> throughout, avoiding ambiguity between date conventions.</td></tr>
+  <tr><td class="id">NFR-11</td><td>Maintainability</td><td>Adding a routine report must not require a software release.</td></tr>
+  <tr><td class="id">NFR-12</td><td>Compatibility</td><td>The platform targets current versions of mainstream desktop browsers.</td></tr>
+</table>
+
+<h2>8. Assumptions, Dependencies and Constraints</h2>
+<h3>8.1 Assumptions</h3>
+<ul>
+  <li>All users in this phase are internal staff with organisation-issued credentials.</li>
+  <li>Reporting queries are authored by administrators who understand the underlying data and are trusted to do so.</li>
+  <li>Users have reliable network access to the internal environment.</li>
+</ul>
+<h3>8.2 Dependencies</h3>
+<ul>
+  <li>A PostgreSQL database holding both platform configuration and the business data being reported on.</li>
+  <li>Company and hierarchy reference data must be populated before users can be created.</li>
+  <li>Any table used for data entry must carry the ownership and audit columns required by BR-4.</li>
+</ul>
+<h3>8.3 Constraints</h3>
+<ul>
+  <li>No outbound email or SMS gateway is available; assistance requests are captured only.</li>
+  <li>Menu names, report titles and other administrator-authored text appear as entered and are not translated by the language setting.</li>
+  <li>Usage analytics cannot answer questions spanning more than seven days.</li>
+</ul>
+
+<h2>9. Future Phases</h2>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Candidate capability</th><th>Note</th></tr>
+  <tr><td class="id">FUT-1</td><td>Asynchronous export queue with Excel and PDF output, and a download centre</td><td>Design allows for it; current export is synchronous CSV</td></tr>
+  <tr><td class="id">FUT-2</td><td>Email and SMS delivery of notifications and scheduled reports</td><td>Requires a gateway decision</td></tr>
+  <tr><td class="id">FUT-3</td><td>Client-facing access for the Client hierarchy</td><td>Hierarchy already defined</td></tr>
+  <tr><td class="id">FUT-4</td><td>Dashboard analytics from live login and usage data</td><td>Dashboard currently shows indicative figures</td></tr>
+  <tr><td class="id">FUT-5</td><td>Organisation-wide usage reporting for administrators</td><td>Data is already captured; only the presentation is user-specific today</td></tr>
+  <tr><td class="id">FUT-6</td><td>Longer-term usage retention for trend analysis</td><td>Requires a retention policy decision</td></tr>
+</table>
+
+<h2>10. Glossary</h2>
+<table class="data">
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td>Application (App)</td><td>One product within a company, selectable from the application switcher, with its own menu structure.</td></tr>
+  <tr><td>Company</td><td>The legal entity a user, menu, role or application belongs to.</td></tr>
+  <tr><td>Hierarchy</td><td>The user's position in the organisation, such as Branch or Franchisee. Distinct from role.</td></tr>
+  <tr><td>Role</td><td>A named set of menu permissions, scoped to a company and hierarchy.</td></tr>
+  <tr><td>Filter component</td><td>A reusable input definition, such as "Company" or "Sale Date Range", used across many reports.</td></tr>
+  <tr><td>Filter</td><td>A named arrangement of filter components into rows and positions.</td></tr>
+  <tr><td>Report</td><td>A filter bound to a query definition and display settings.</td></tr>
+  <tr><td>Report mode</td><td>A report that runs a query and displays results.</td></tr>
+  <tr><td>Form mode</td><td>The same filter used to add, edit and delete records in a target table.</td></tr>
+  <tr><td>Drill-down</td><td>Opening a related report from a value in a result row, carrying the current filter values across.</td></tr>
+  <tr><td>Global menu</td><td>A menu not assigned to any application, therefore visible in all of them.</td></tr>
+</table>
+
+<footer class="doc-end">
+  SIHL Synapse — Business Requirements Specification, version 1.0. Companion documents: Technical Architecture; User Guidelines.
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,141 @@
+/* Shared print stylesheet for the SIHL Synapse document set.
+   Palette matches the product's own day theme (src/app/globals.css). */
+
+:root {
+  --navy: #0a5281;
+  --teal: #1d8f6a;
+  --green: #66bb46;
+  --ink: #1a2332;
+  --muted: #5c6e80;
+  --rule: #d8e4ee;
+  --tint: #f2f7fb;
+  --warn-bg: #fdf5e4;
+  --warn-rule: #e6c98a;
+}
+
+@page {
+  size: A4;
+  margin: 18mm 16mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Segoe UI", Calibri, "Helvetica Neue", Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.55;
+  color: var(--ink);
+  margin: 0;
+}
+
+/* ---------- Cover ---------- */
+.cover {
+  height: 247mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  page-break-after: always;
+}
+.cover-band {
+  background: linear-gradient(135deg, #0a5281 0%, #1d8f6a 55%, #66bb46 100%);
+  color: #fff;
+  padding: 16mm 14mm;
+  border-radius: 3mm;
+}
+.cover-band .product { font-size: 12pt; letter-spacing: 0.28em; text-transform: uppercase; opacity: 0.85; }
+.cover-band h1 { font-size: 30pt; margin: 6mm 0 3mm; line-height: 1.15; font-weight: 800; }
+.cover-band .sub { font-size: 12pt; opacity: 0.92; }
+.cover-meta { font-size: 10pt; color: var(--muted); }
+.cover-meta table { width: 100%; border-collapse: collapse; }
+.cover-meta td { padding: 2.2mm 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.cover-meta td:first-child { width: 38mm; color: var(--muted); font-weight: 600; }
+
+/* ---------- Headings ---------- */
+h1, h2, h3, h4 { color: var(--navy); page-break-after: avoid; }
+h2 {
+  font-size: 15pt;
+  margin: 9mm 0 3mm;
+  padding-bottom: 1.5mm;
+  border-bottom: 2px solid var(--navy);
+  page-break-before: auto;
+}
+h2.new-page { page-break-before: always; }
+h3 { font-size: 12pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10.5pt; margin: 4mm 0 1.5mm; color: var(--teal); }
+p { margin: 0 0 3mm; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1.2mm; }
+
+/* ---------- Tables ---------- */
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin: 0 0 4mm;
+  page-break-inside: auto;
+}
+table.data th {
+  background: var(--navy);
+  color: #fff;
+  text-align: left;
+  padding: 2mm 2.5mm;
+  font-weight: 600;
+}
+table.data td { padding: 2mm 2.5mm; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.data tr { page-break-inside: avoid; }
+table.data tr:nth-child(even) td { background: var(--tint); }
+table.data code { font-size: 8.5pt; }
+td.id, th.id { width: 22mm; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---------- Callouts ---------- */
+.note, .warn {
+  padding: 3mm 4mm;
+  border-radius: 1.5mm;
+  margin: 0 0 4mm;
+  page-break-inside: avoid;
+  font-size: 10pt;
+}
+.note { background: var(--tint); border-left: 3px solid var(--teal); }
+.warn { background: var(--warn-bg); border-left: 3px solid var(--warn-rule); }
+.note strong, .warn strong { color: var(--navy); }
+
+code {
+  font-family: Consolas, "Courier New", monospace;
+  background: var(--tint);
+  padding: 0.4mm 1.2mm;
+  border-radius: 1mm;
+  font-size: 9pt;
+}
+pre {
+  background: #0d2744;
+  color: #e8f0f7;
+  padding: 3.5mm 4mm;
+  border-radius: 1.5mm;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 8.5pt;
+  line-height: 1.45;
+  overflow: visible;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+  margin: 0 0 4mm;
+}
+pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+
+/* ---------- TOC ---------- */
+.toc { page-break-after: always; }
+.toc ol { list-style: none; padding-left: 0; counter-reset: sec; }
+.toc > ol > li { counter-increment: sec; margin-bottom: 1.6mm; font-weight: 600; }
+.toc > ol > li::before { content: counter(sec) ".  "; color: var(--teal); }
+.toc ol ol { padding-left: 8mm; margin-top: 1mm; counter-reset: sub; }
+.toc ol ol li { counter-increment: sub; font-weight: 400; font-size: 10pt; color: var(--muted); margin-bottom: 0.8mm; }
+.toc ol ol li::before { content: counter(sec) "." counter(sub) "  "; color: var(--teal); }
+
+.step { margin-bottom: 2mm; }
+.step b { color: var(--navy); }
+footer.doc-end {
+  margin-top: 10mm;
+  padding-top: 3mm;
+  border-top: 1px solid var(--rule);
+  font-size: 9pt;
+  color: var(--muted);
+}

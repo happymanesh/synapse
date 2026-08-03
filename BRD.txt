@@ -1,0 +1,314 @@
+login page
+-------------
+should display an image of the company with tagline of the company and product.
+rightside it should display login section with tab login with User ID, OTP, QR Code
+QR code tab keep it disable as present as it need a mobile app to connect with and share the details.
+OTP at present keep is disable as it need service provider to send email with OTP.
+user id keep it active. it will ask for username, password and an option to help in case of any difficult which will include forget or reset userid and password. prepare a popup to get user id and/or reset password. min expected password policy should be length of min 8 character including alphabet (1 uppercase mandatory) + 1 simple special character and numeric. no last 3 password can be reused, password should not be same as username. 
+
+backend should be in postgressSQL
+table structure for userdetails
+UID (Primary Key and Identity), Company Code (Source Company Master), username, password (encrypted), CustomerId,FullName, Mobile,Email, last password Changed date, created Date, Modified Date, Hirearchy, HirearchyCode (will fetch it from product master later), client Category (for all new user it is C00)
+
+Hirearchy table
+UID (identity), Hirearchy Code(Primary Key),Hirearchy Name, Description, IsActive (Type Bit 0-Inactive and 1-Active, default is 1), SeqId 
+(0000 Management,0100 CSO,0200 Employee,0300 Branch,0400 Franchisee,0500 SubBroker,0600 Remisior,0700 family,0800 Client)
+
+User_IP_Mapping
+Username,, IP_mapping, IsActive  (IP mapping will be IP address from which access can be allowed.if the user record is missing then user will be allowed from any system. and if it is mapped it will be restricted. even wild card is allowed like 192.168.*.* )
+
+Company_Master
+CID (identity)
+Company Code, Company Name, IsActive, PAN No, TAN No, Regd Office Address, Company Logo File Location
+
+Client Category master
+Client Category Code, Client Category name, Isactive
+sample date 'C00','All Client',1;'C01','B2B Client',1
+
+
+Create table with a sample record:
+1,'Manesh001','<password - see SEED_USER_PASSWORD in .env>','Manesh001','Manesh Anand Mukherjee','<mobile>','<email>','01-Jan-1900','25-Jul-2026','01-Jan-1900','0100','CSO',C00'
+
+IsActive Column everywhere will be same (0-Inactive and 1-Active) whereever the data is fetched it will check for active.
+
+an admin version to Add, Edit, delete and update will be developing once all the components are ready.
+on login system will log it in a table called login_logs with even it is a failure. 
+
+
+on Successfull login
+----------------------
+an application page with be displayed.
+Company logo, user name and role, menu search, profile, Notification bell,setting, Logout
+setting will be for theme (day, night, hybrid), regional language selection - first time english, password reset, menu verical or horizonal style and many more....
+menu will be vertical on left side with option to collapse. collapse mode will show only icon.
+menu will be of maximum 3 level: main, sub and option.
+menu option will have over mouse over text.
+
+menu and role will have a company code and hirearchy code also for mapping with each other.
+Menu will be mapped with Company and also with hirerchy
+Role will also be mapped with Company and with hirerchy
+Menu will map to a role for the selected company and hirearchy
+Role will map to a user
+Menu, Role will also have isactive column.
+
+menu items will be populated for the specific user and displayed.
+1st option in the menu will be Dashboard which is static and not fetched from menu master
+dashboard will display important statistics in graph for the particular user.
+
+
+---------------------------------------------
+Dynamic report
+
+what i used to do in SQL. 
+In such application there is UI for CRUD or report.
+to have a dynamic system and a centralised control i had created a common repository for filter components. these components can be single on group (group means where one components have dependency on the value selected on another). details of such components are stored in a table.
+While creating a report required filter components are selected and aligned for filter section. aligned means 1st row 1st position or 2nd like that. a code is alloted to this..called it case FilterID. all the details are stored in Report Filter Table.
+Filter area can be collapsable and extendable..
+
+a dynamic report was created. when a selected values in  JSON format passed to the report.. 
+a Report Data table is created with all the details for the report and a ReportID is alloted which is mapped woth the FilterID.
+a report Data table contains all the details like max row to display default 2000 if it exceeds than will automatically redirect to download option with approriate message.
+colum headings,
+which column to highlight
+row to highlight based on its value.
+Report title
+freezing no of columns from left
+report display style like paging or full with freezing header and footer.
+static Footer note 
+export/email option with PDF, CSV, Excel and download or email.
+these file genertion for email or download should be global and consider all the request in sequence.
+user can check all his download or email request from a download option on the top near notification bell. (Add download logo to check this report in popup window. the data should display only for last 7 days request with a link to download it on his system once process is completed else display status as 'in queue' or 'generating' etc...) 
+
+From menu this report can be called based on reportID.
+in menu provision for call external URL is also required.
+
+the above filter section can also be used to add records based on its components. 
+components can be marked as mandatory or optional.
+Show/Submit/Save, Reset is also a part of filter components. this is always mandatory.
+when it is save the saved records should be displayed in the report format below with an option to edit/delete.
+on edit the data will get populte in the above filter UI used to edit
+on delete it will confirm for deletion and delete the record. 
+but all the records added by him only should be displayed. 
+and therefore for all the records updatedBy and UpdatedOn is a mandatory columns (add this in a rule)
+
+
+Above Column Name
+Left side
+-Report Title on top of column name left aligned
+-filter selection with small font left aligned below report title.
+Right side :
+-with button to download (sub-option: CSV,PDF,Excel)
+button to show column filter (Default hide)
+Columns should be with provision to sort
+background color for odd and even row should be slightly different.
+Report data faint line for rows and columns.
+all the dates should be in dd-Mmm-yyyy format and dates with time dd-Mmm-yyyy hh:mm. and sorting on this should be proper based on date and not based on its text. (Add this in a rule)
+In sample footer text is missing.
+Align: Date should be center aligned, text left aligned and numeric should be right aligned. Amount should be 2 decimal.
+
+create a Main Menu > Utilities 
+Add submenu > Sample
+Add option > Sales Report
+
+and move the sales report in Utilities > Sample > Sales Report.
+
+I tried to create a main menu Utilities but it was showing "Something went wrong" do highlight the section with message in red to indicate where the input was wrong.
+
+
+
+the sales report is not showing paging when paged is selected. Also when show is selected in filter... filter section should automatically get collapsed. rename 'collapse filter' with 'Collapse' and 'expand filter' with 'Expand'
+scrolling in report data is ok.. but scrolling is page should be managed. page level scrolling shold not be there when filter is collapsed.
+report css is not matching with SIHL style sheet or theme.
+in search in navbar on top - the search should be on menu name and content onmouse over. any matching should get displayed in the page with a provision when clicked on it it should open the option or redirect to the option.
+in setting add regional language 'Hindi,marathi,gujrati,punjabi,bengali,telegu,kanada,malayalam,tamil'
+in sample report add total below on Amount. and its provision in the report master for the same.
+When the left menu section is collapsed and user click on the icon, its menu details should get displayed for selection.
+a heart icon should add near notification bell in navbar.. when clicked on it... the active option should get added in the favorities.
+favorities section should be a part of the dashboard in card format horizontally scrolling.
+
+
+in collapsable mode when clicked on menu option nothing is happening.
+When regional language it selected it is not getting saved. neither the content of the app is getting changes to the selected language.
+--------------------------------------
+
+Drill down feature in dynamic report
+
+Create a sales summary report.
+Filter: 
+1) Report Type <dropdown> Productwise,Regionwise 
+2) Date Range same as Sales Report.
+
+report if productwise then show Company, product, total amount for that product
+report if regionwise then show Company, product, total amount for that region
+with total amount at the bottom
+
+in productwise show link on product. when selected show report for that particular product in detail considering the filters applied.
+in regionwise show link on region when selected show report for that particular region in detail considering the filters applied.
+show the report as a report with an option to go back to the main report or in popup window adjusting the size small, medium, large based on the data to display.
+This drill down report (detail report) should be a part of the report but called from another (summary) report. All this features should be a part of Dynamic report.
+
+in dynamic drill down report. Don't show filter section in the drill down.
+
+in dynamic report drill down report is displayed in a popup on in the normal report form with back option to previous report. this should be in a manage columns option. default will be 'normal' with a dropdown to choose 'popup'
+
+
+
+in the menu section 
+show the collapse on the top and not at the bottom. show only icon alligned toward left. this icon should change for collapse and expand.
+inside show a on-off button with label as new window. default off, when on open all the menu option selected on a new tab on the browser.
+Also when a show is selected in a filter this left menu should get automatically collapsed.
+
+in all the popup window the close x is very small and not visible easily. make it little big or show 'Close' button instead of 'x' 
+in the menu section increase the size of the collapse and expand menu icon and in the same like provide new window on-off button.
+
+always show breadcrumbs in top of filter selection
+when any menu option is selected. other expanded main menu other than active main menu should get collapsed.
+
+in report definaton page: replace the actions content with icons to save space.
+Edit
+Delete
+Manage columns
+Manage highlight rules
+
+Notification/messaging sending option in admin menu
+----------------------------------------------------
+
+Message for : Hirearchy or specific user
+if Hirearchy then select hirearchy 
+if specific user select user full (Full name + (username))
+type : popup message on login, notification bell list.
+message : 
+Schedule Date and Time. (later)
+when a message is sent. the notifical bell will show count of the unread messages and when clicked on it, it will display messages with timestamp.
+
+
+when any menu option is selected. other expanded main menu is getting collapsed.
+
+
+in navbar: add profile,Setting, logout when clicked on it. move the setting from navbar to the dropdown on username.
+
+in filter:
+The Collapse and Expand Filter should be 'Hide Parameters' and 'Show Parameters' respectively and should be located on the same line of the breadcrumbs on the extreme right side. and it should collapse the entire filter section to give more space to report.
+
+
+Menu section:
+The background of the open menu section should be with different color and slight different in share for main menu, sub menu and menu options.
+also show an up arrow/down arrow key on the rightside of the main menu.
+Also the selected menu option should be with green big dot on right side of the menu option.
+
+
+in Administration menu: for all the options within
+Replace the text content in the action columns with icons.
+
+Drill down in dynamic report:
+when clicked on the back from the drill down report which was opened in normal mode it is showing the initialised version on the previous report and not the last state of the previous report.
+
+================================================================================================================================================
+
+PDF/Excel download activate in report
+
+add a slider on the right side with app logo.
+when click on it.it will expand to show app name with its logo
+when app is selected all the menu items will get populated for that app.
+in admin master add an option to Create/Edit/Delete/List App.
+App should be mapped with company code.
+All the users, roles, client category, Hirearchy should be mapped with App as well.
+Between Synapse and Search show App name with a vertical on both of its side.
+
+
+
+
+
+
+later
+---------
+Sequencial Download Process
+
+export/email option with PDF, CSV, Excel and download or email.
+these file genertion for email or download should be common centralised process and consider all the request from all the users in sequence.
+user can check all his download or email request from a download option on the top near notification bell. (Add download logo to check this report in popup window. the data should display only for last 7 days request with a link to download it on his system once process is completed else display status as 'in queue' or 'generating' etc...) 
+
+in report:
+the download buttom should be replaced with Download icon and add an Export Icon besides download icon.
+when export icon is selected 
+show a popup menu and request user to Select Format: CSV,Excel,PDF
+than select Download/Email (email disable as of now) 
+than enable button 'Submit request' and on submitted display message 'Your request accepted. Request id: <999999>'
+
+
+Check the theme color, layout, menu options, its content and way it is presented, All the captions and labelling, comonents need to hide on specific conditions or selections, scalability, performance,etc check the entire project end to end and do the needful correction whereever needed with approval.
+
+
+----------------------------------- BTW
+can i use stored procedure in administration/report instead of query ? and if yes can i pass the parameters similiar to we use for mssql sp ?
+
+Good question — and the answer depends on details of how the engine binds and wraps queryText. Let me check rather than guess:
+
+Short answer: yes for Postgres functions, no for true CALL procedures — and parameters work, but in Postgres style rather than MSSQL style.
+
+Two things constrain this. Your DB is PostgreSQL 16, not MSSQL, and the engine doesn't run queryText bare — it wraps it:
+
+POST /reports/[id]/run pre-checks the row cap with SELECT COUNT(*) FROM (<queryText>) t
+FORM mode wraps with SELECT * FROM (<queryText>) __owned_wrapper WHERE created_by = $n
+So whatever you put in queryText has to be legal as a subquery. A RETURNS TABLE function is; CALL my_proc(...) is not — it's a statement, can't be nested in a FROM, and can't return a result set anyway (only INOUT params, as a single row).
+
+What works
+CREATE OR REPLACE FUNCTION sp_sales_report(
+  p_company   text,
+  p_from_date date,
+  p_to_date   date
+)
+RETURNS TABLE (
+  company_code text, sale_date date, product_name text,
+  region text, quantity int, amount numeric
+)
+LANGUAGE sql STABLE AS $$
+  SELECT company_code, sale_date, product_name, region, quantity, amount
+  FROM sample_sales
+  WHERE (p_company   IS NULL OR company_code = p_company)
+    AND (p_from_date IS NULL OR sale_date   >= p_from_date)
+    AND (p_to_date   IS NULL OR sale_date   <= p_to_date)
+  ORDER BY sale_date DESC;
+$$;
+Then in Report Master, queryText becomes just:
+
+SELECT * FROM sp_sales_report(:SALES_COMPANY::text, :SALES_DATE_RANGE_FROM::date, :SALES_DATE_RANGE_TO::date)
+Everything else stays as-is — ReportColumn.columnKey values just have to match the function's output column names.
+
+Parameters
+MSSQL	Here
+Marker	@CompanyCode	:SALES_COMPANY
+Name source	you choose	must equal the filter item's componentCode
+Date range	two params you define	auto-split into :CODE_FROM / :CODE_TO
+Binding	sp_executesql	rewritten to $1..$n, passed as real bind params — never string-concatenated
+The one gotcha: keep the ::text / ::date casts. Unset filters arrive as SQL NULL, and Postgres can't resolve which sp_sales_report overload you mean from an untyped NULL — you'd get "function is not unique" or "could not determine data type". That's the same reason the existing seeded queries write :SALES_COMPANY::text IS NULL.
+
+If you're stuck with a real procedure, the fix is a thin wrapper: convert it to RETURNS TABLE, or have the proc write to a temp/staging table and point a wrapper function at that.
+
+One caveat on confidence: I'm reasoning from the binding and wrapping code I read earlier this session (bindNamedParams, bindAndWrapWithOwnership, the run route's count wrapper) — I haven't actually executed a stored function through the engine end-to-end. Want me to add sp_sales_report as a working sample report and verify it properly, so you have a template to copy for real ones?
+
+what studio should i use for postgressSQL  16 to create tables, display data, create function etc ?
+
+For your setup — Windows, local PG 16, and coming from an MSSQL/SSMS background — I'd go with DBeaver Community.
+
+DBeaver Community (free, dbeaver.io)
+Best all-round daily driver. Strong SQL editor with autocomplete, a data grid you can filter/sort/edit inline and export straight to CSV, a visual table designer, and a DDL tab on every object so you can read and edit function bodies directly. Handles the CREATE FUNCTION ... RETURNS TABLE work from the previous question comfortably.
+
+pgAdmin 4 — the alternative worth knowing
+Almost certainly already installed; it ships with the EDB PostgreSQL Windows installer. It's the official tool and the closest thing to SSMS in shape: dedicated right-click Create → Function / Procedure dialogs with parameter grids, rather than making you hand-write the DDL. Clunkier and browser-based, but if the wizard-style function authoring is what you miss from SSMS, use this one for that specifically.
+
+DataGrip if you already have a JetBrains subscription — genuinely the nicest of the three, but not worth buying standalone for this.
+
+Two things to skip: Azure Data Studio (Microsoft retired it earlier this year — don't start there despite the MSSQL familiarity), and Prisma Studio. You already have Prisma Studio via npx prisma studio, but it only renders Prisma models — sample_sales won't even appear since it's a hand-created table, and it can't create tables or functions at all. It's a row browser, not a studio in the sense you mean.
+
+Connecting: host localhost, port 5432, database sihl_synapse. Username and password are in the DATABASE_URL line of C:\Projects\Synapse\.env.
+
+One more thing worth fixing while you're at it: psql isn't on your PATH — I hit that earlier and had to fall back to prisma db execute. It's at C:\Program Files\PostgreSQL\16\bin. Adding that to PATH gives you psql in any terminal, which is handy for the manual-DDL migration pattern this project uses (direct ALTER TABLE + prisma migrate resolve --applied, never db push, since that wants to drop sample_sales).
+
+
+
+
+
+
+
+  

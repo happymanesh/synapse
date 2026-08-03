@@ -1,0 +1,465 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model CompanyMaster {
+  cid                     Int     @id @default(autoincrement())
+  companyCode             String  @unique @map("company_code")
+  companyName             String  @map("company_name")
+  isActive                Boolean @default(true) @map("is_active")
+  panNo                   String? @map("pan_no")
+  tanNo                   String? @map("tan_no")
+  regdOfficeAddress       String? @map("regd_office_address")
+  companyLogoFileLocation String? @map("company_logo_file_location")
+
+  users        UserDetails[]
+  menus        MenuMaster[]
+  roles        RoleMaster[]
+  roleMenuMaps RoleMenuMap[]
+  apps         AppMaster[]
+
+  @@map("company_master")
+}
+
+/**
+ * One product/application within a company. A user's access to an app is never stored
+ * directly — it is derived: user -> roles -> role_menu_map -> menu -> app
+ * (see getAppsForUser in src/lib/apps.ts).
+ */
+model AppMaster {
+  appCode      String  @id @map("app_code")
+  appName      String  @map("app_name")
+  companyCode  String  @map("company_code")
+  description  String?
+  icon         String? // emoji, used when appLogoUrl is not set
+  appLogoUrl   String? @map("app_logo_url")
+  displayOrder Int     @default(0) @map("display_order")
+  isActive     Boolean @default(true) @map("is_active")
+
+  company CompanyMaster @relation(fields: [companyCode], references: [companyCode])
+  menus   MenuMaster[]
+
+  @@map("app_master")
+}
+
+model HierarchyMaster {
+  uid           Int     @id @default(autoincrement())
+  hierarchyCode String  @unique @map("hierarchy_code")
+  hierarchyName String  @map("hierarchy_name")
+  description   String?
+  isActive      Boolean @default(true) @map("is_active")
+  seqId         String  @map("seq_id")
+
+  users         UserDetails[]
+  menus         MenuMaster[]
+  roles         RoleMaster[]
+  roleMenuMaps  RoleMenuMap[]
+  notifications Notification[]
+
+  @@map("hierarchy_master")
+}
+
+model ClientCategoryMaster {
+  clientCategoryCode String  @id @map("client_category_code")
+  clientCategoryName String  @map("client_category_name")
+  isActive           Boolean @default(true) @map("is_active")
+
+  users UserDetails[]
+
+  @@map("client_category_master")
+}
+
+model UserDetails {
+  uid                     Int       @id @default(autoincrement())
+  companyCode             String    @map("company_code")
+  username                String    @unique
+  passwordHash            String    @map("password_hash")
+  customerId              String?   @map("customer_id")
+  fullName                String    @map("full_name")
+  mobile                  String?
+  email                   String?
+  lastPasswordChangedDate DateTime? @map("last_password_changed_date")
+  createdDate             DateTime  @default(now()) @map("created_date")
+  modifiedDate            DateTime? @updatedAt @map("modified_date")
+  hierarchyCode           String    @map("hierarchy_code")
+  clientCategoryCode      String    @default("C00") @map("client_category_code")
+  isActive                Boolean   @default(true) @map("is_active")
+  /// Last app this user opened — reopened automatically on next login. No FK: an app
+  /// that's deleted or revoked just falls back to the user's first accessible app.
+  lastAppCode             String?   @map("last_app_code")
+
+  company        CompanyMaster        @relation(fields: [companyCode], references: [companyCode])
+  hierarchy      HierarchyMaster      @relation(fields: [hierarchyCode], references: [hierarchyCode])
+  clientCategory ClientCategoryMaster @relation(fields: [clientCategoryCode], references: [clientCategoryCode])
+
+  passwordHistory PasswordHistory[]
+  ipMappings      UserIpMapping[]
+  loginLogs       LoginLog[]
+  userRoles       UserRoleMap[]
+  favoriteMenus   UserFavoriteMenu[]
+  sentNotifications   Notification[]     @relation("SentNotifications")
+  directNotifications Notification[]     @relation("DirectNotifications")
+  notificationReads   NotificationRead[]
+
+  @@index([companyCode])
+  @@map("user_details")
+}
+
+model PasswordHistory {
+  id           Int      @id @default(autoincrement())
+  userUid      Int      @map("user_uid")
+  passwordHash String   @map("password_hash")
+  changedDate  DateTime @default(now()) @map("changed_date")
+
+  user UserDetails @relation(fields: [userUid], references: [uid], onDelete: Cascade)
+
+  @@index([userUid])
+  @@map("password_history")
+}
+
+model UserIpMapping {
+  id        Int     @id @default(autoincrement())
+  userUid   Int     @map("user_uid")
+  ipMapping String  @map("ip_mapping")
+  isActive  Boolean @default(true) @map("is_active")
+
+  user UserDetails @relation(fields: [userUid], references: [uid], onDelete: Cascade)
+
+  @@index([userUid])
+  @@map("user_ip_mapping")
+}
+
+model LoginLog {
+  id            Int      @id @default(autoincrement())
+  username      String
+  userUid       Int?     @map("user_uid")
+  loginTime     DateTime @default(now()) @map("login_time")
+  status        String
+  failureReason String?  @map("failure_reason")
+  ipAddress     String?  @map("ip_address")
+  userAgent     String?  @map("user_agent")
+
+  user UserDetails? @relation(fields: [userUid], references: [uid])
+
+  @@index([userUid])
+  @@map("login_logs")
+}
+
+model MenuMaster {
+  menuCode       String  @id @map("menu_code")
+  parentMenuCode String? @map("parent_menu_code")
+  menuName       String  @map("menu_name")
+  icon           String?
+  routePath      String? @map("route_path")
+  level          Int
+  displayOrder   Int     @default(0) @map("display_order")
+  companyCode    String  @map("company_code")
+  hierarchyCode  String  @map("hierarchy_code")
+  menuType       String  @default("ROUTE") @map("menu_type") // ROUTE | REPORT | EXTERNAL
+  externalUrl    String? @map("external_url")
+  reportId       String? @map("report_id")
+  /// Which app this menu belongs to. NULL means "global" — shown in every app (this is
+  /// what keeps Administration reachable no matter which app is selected).
+  appCode        String? @map("app_code")
+  isActive       Boolean @default(true) @map("is_active")
+
+  parent   MenuMaster?  @relation("MenuTree", fields: [parentMenuCode], references: [menuCode])
+  children MenuMaster[] @relation("MenuTree")
+
+  app       AppMaster?        @relation(fields: [appCode], references: [appCode])
+  company   CompanyMaster     @relation(fields: [companyCode], references: [companyCode])
+  hierarchy HierarchyMaster   @relation(fields: [hierarchyCode], references: [hierarchyCode])
+  report    ReportDefinition? @relation(fields: [reportId], references: [reportId])
+  roleMaps  RoleMenuMap[]
+  favoritedBy UserFavoriteMenu[]
+
+  @@index([appCode])
+  @@index([parentMenuCode])
+  @@index([companyCode, hierarchyCode])
+  @@map("menu_master")
+}
+
+model RoleMaster {
+  roleCode      String  @id @map("role_code")
+  roleName      String  @map("role_name")
+  companyCode   String  @map("company_code")
+  hierarchyCode String  @map("hierarchy_code")
+  isActive      Boolean @default(true) @map("is_active")
+
+  company   CompanyMaster   @relation(fields: [companyCode], references: [companyCode])
+  hierarchy HierarchyMaster @relation(fields: [hierarchyCode], references: [hierarchyCode])
+  menuMaps  RoleMenuMap[]
+  userRoles UserRoleMap[]
+
+  @@map("role_master")
+}
+
+model RoleMenuMap {
+  id            Int     @id @default(autoincrement())
+  roleCode      String  @map("role_code")
+  menuCode      String  @map("menu_code")
+  companyCode   String  @map("company_code")
+  hierarchyCode String  @map("hierarchy_code")
+  isActive      Boolean @default(true) @map("is_active")
+
+  role      RoleMaster      @relation(fields: [roleCode], references: [roleCode])
+  menu      MenuMaster      @relation(fields: [menuCode], references: [menuCode])
+  company   CompanyMaster   @relation(fields: [companyCode], references: [companyCode])
+  hierarchy HierarchyMaster @relation(fields: [hierarchyCode], references: [hierarchyCode])
+
+  @@unique([roleCode, menuCode, companyCode, hierarchyCode])
+  @@index([companyCode, hierarchyCode, roleCode])
+  @@index([menuCode])
+  @@map("role_menu_map")
+}
+
+model UserRoleMap {
+  id       Int     @id @default(autoincrement())
+  userUid  Int     @map("user_uid")
+  roleCode String  @map("role_code")
+  isActive Boolean @default(true) @map("is_active")
+
+  user UserDetails @relation(fields: [userUid], references: [uid], onDelete: Cascade)
+  role RoleMaster  @relation(fields: [roleCode], references: [roleCode])
+
+  @@unique([userUid, roleCode])
+  @@map("user_role_map")
+}
+
+/// Phase-1 capture-only queue for Forgot User ID / Reset Password requests,
+/// since the real OTP/email delivery service isn't live yet.
+model AccountRequest {
+  id          Int      @id @default(autoincrement())
+  username    String?
+  requestType String   @map("request_type")
+  contact     String?
+  status      String   @default("PENDING")
+  createdDate DateTime @default(now()) @map("created_date")
+
+  @@map("account_requests")
+}
+
+/// Phase 3: reusable filter/form component repository. A component is pure
+/// and reusable (e.g. "Branch Dropdown") — whether it cascades from another
+/// component is decided per-usage in FilterDefinitionItem, not here.
+model FilterComponentMaster {
+  componentCode     String  @id @map("component_code")
+  componentName     String  @map("component_name")
+  componentType     String  @map("component_type") // TEXT | NUMBER | DATE | DATE_RANGE | DROPDOWN | MULTI_SELECT | CHECKBOX | RADIO
+  dataSourceType    String  @default("NONE") @map("data_source_type") // STATIC | SQL | NONE
+  staticOptionsJson String? @map("static_options_json")
+  dataSourceQuery   String? @map("data_source_query")
+  isActive          Boolean @default(true) @map("is_active")
+
+  filterItems FilterDefinitionItem[]
+
+  @@map("filter_component_master")
+}
+
+/// The FilterID header — a named, reusable arrangement of filter components.
+model FilterDefinition {
+  filterId         String  @id @map("filter_id")
+  filterName       String  @map("filter_name")
+  isCollapsible    Boolean @default(true) @map("is_collapsible")
+  defaultCollapsed Boolean @default(false) @map("default_collapsed")
+  isActive         Boolean @default(true) @map("is_active")
+
+  items   FilterDefinitionItem[]
+  reports ReportDefinition[]
+
+  @@map("filter_definition")
+}
+
+/// One component's placement within a FilterID: grid position, whether it's
+/// mandatory in this arrangement, and (for FORM mode) which target-table
+/// column it maps to. dependsOnItemId makes cascading a per-arrangement
+/// property of the placement, not the component.
+model FilterDefinitionItem {
+  id              Int     @id @default(autoincrement())
+  filterId        String  @map("filter_id")
+  componentCode   String  @map("component_code")
+  rowNo           Int     @map("row_no")
+  positionNo      Int     @map("position_no")
+  isMandatory     Boolean @default(false) @map("is_mandatory")
+  labelOverride   String? @map("label_override")
+  defaultValue    String? @map("default_value")
+  mappedColumn    String? @map("mapped_column")
+  dependsOnItemId Int?    @map("depends_on_item_id")
+  isActive        Boolean @default(true) @map("is_active")
+
+  filter    FilterDefinition      @relation(fields: [filterId], references: [filterId], onDelete: Cascade)
+  component FilterComponentMaster @relation(fields: [componentCode], references: [componentCode])
+
+  dependsOn  FilterDefinitionItem?  @relation("ItemDependency", fields: [dependsOnItemId], references: [id], onDelete: SetNull)
+  dependents FilterDefinitionItem[] @relation("ItemDependency")
+
+  @@index([filterId])
+  @@map("filter_definition_item")
+}
+
+/// The ReportID header — mapped to a FilterID, either a REPORT (runs queryText
+/// and displays/exports results) or a FORM (queryText is the "my saved
+/// records" list; targetTable + each item's mappedColumn drive save/edit/delete).
+model ReportDefinition {
+  reportId          String   @id @map("report_id")
+  reportTitle       String   @map("report_title")
+  filterId          String   @map("filter_id")
+  mode              String   @default("REPORT") @map("mode") // REPORT | FORM
+  queryText         String   @map("query_text")
+  targetTable       String?  @map("target_table")
+  maxRows           Int      @default(2000) @map("max_rows")
+  freezeColumns     Int      @default(0) @map("freeze_columns")
+  displayStyle      String   @default("PAGED") @map("display_style") // PAGED | FULL_FROZEN
+  footerNote        String?  @map("footer_note")
+  allowedFormats    String[] @default(["CSV"]) @map("allowed_formats")
+  allowedDeliveries String[] @default(["DOWNLOAD"]) @map("allowed_deliveries")
+  isActive          Boolean  @default(true) @map("is_active")
+
+  filter             FilterDefinition         @relation(fields: [filterId], references: [filterId])
+  columns            ReportColumn[]
+  highlightRules     ReportRowHighlightRule[]
+  menuItems          MenuMaster[]
+  drilledFromColumns ReportColumn[]           @relation("ColumnDrillDownTarget")
+
+  @@map("report_definition")
+}
+
+/// Per-report column display config. columnKey must match the alias/name a
+/// column comes back as from queryText.
+model ReportColumn {
+  id            Int     @id @default(autoincrement())
+  reportId      String  @map("report_id")
+  columnKey     String  @map("column_key")
+  displayLabel  String  @map("display_label")
+  displayOrder  Int     @default(0) @map("display_order")
+  isHighlighted Boolean @default(false) @map("is_highlighted")
+  isIdentifier  Boolean @default(false) @map("is_identifier")
+  // Drives display formatting, alignment, and sort comparator — see CLAUDE.md
+  // "Date/number column formatting" rule. TEXT | NUMBER | DATE | DATETIME.
+  dataType      String  @default("TEXT") @map("data_type")
+  decimalPlaces Int?    @map("decimal_places")
+  // NUMBER columns only — sums the column across the result set into a footer total row.
+  showTotal     Boolean @default(false) @map("show_total")
+
+  // Drill-down: clicking a cell in this column opens drillDownReport, passing this cell's
+  // value into drillDownTargetParam. See CLAUDE.md "Report drill-down" rule for the
+  // plain-string vs JSON-discriminator convention on drillDownTargetParam, and for how
+  // the rest of the current filter values carry over automatically.
+  drillDownReportId    String? @map("drill_down_report_id")
+  drillDownTargetParam String? @map("drill_down_target_param")
+  drillDownMode        String  @default("PAGE") @map("drill_down_mode") // PAGE ("Normal" in the admin UI) | MODAL ("Popup")
+  drillDownModalSize   String  @default("AUTO") @map("drill_down_modal_size") // AUTO | SMALL | MEDIUM | LARGE
+
+  report          ReportDefinition  @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+  drillDownReport ReportDefinition? @relation("ColumnDrillDownTarget", fields: [drillDownReportId], references: [reportId], onDelete: SetNull)
+
+  @@index([reportId])
+  @@map("report_column")
+}
+
+/// Conditional row-highlight rules, e.g. "status = FAILURE" -> red.
+model ReportRowHighlightRule {
+  id             Int    @id @default(autoincrement())
+  reportId       String @map("report_id")
+  columnKey      String @map("column_key")
+  operator       String // EQ | NEQ | GT | LT | GTE | LTE | CONTAINS
+  compareValue   String @map("compare_value")
+  highlightColor String @map("highlight_color")
+  priority       Int    @default(0)
+
+  report ReportDefinition @relation(fields: [reportId], references: [reportId], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("report_row_highlight_rule")
+}
+
+/// A user's favorited menu item (heart icon in the top bar), surfaced as
+/// horizontally-scrolling cards on the dashboard.
+model UserFavoriteMenu {
+  id        Int      @id @default(autoincrement())
+  userUid   Int      @map("user_uid")
+  menuCode  String   @map("menu_code")
+  createdOn DateTime @default(now()) @map("created_on")
+
+  user UserDetails @relation(fields: [userUid], references: [uid], onDelete: Cascade)
+  menu MenuMaster  @relation(fields: [menuCode], references: [menuCode], onDelete: Cascade)
+
+  @@unique([userUid, menuCode])
+  @@map("user_favorite_menu")
+}
+
+/// An admin-sent message, targeted at either a whole hierarchy or one specific user.
+/// scheduledFor needs no worker/cron to act on it — a recipient simply doesn't see
+/// the message in their applicable-notifications query until scheduledFor has passed
+/// (or immediately, if left blank). See CLAUDE.md "Notifications" rule.
+model Notification {
+  id                   Int       @id @default(autoincrement())
+  senderUid            Int       @map("sender_uid")
+  targetType           String    @map("target_type") // HIERARCHY | USER
+  targetHierarchyCode  String?   @map("target_hierarchy_code")
+  targetUserUid        Int?      @map("target_user_uid")
+  deliveryPopup        Boolean   @default(false) @map("delivery_popup")
+  deliveryBell         Boolean   @default(true) @map("delivery_bell")
+  messageText          String    @map("message_text")
+  scheduledFor         DateTime? @map("scheduled_for")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  isActive             Boolean   @default(true) @map("is_active")
+
+  sender          UserDetails      @relation("SentNotifications", fields: [senderUid], references: [uid])
+  targetHierarchy HierarchyMaster? @relation(fields: [targetHierarchyCode], references: [hierarchyCode])
+  targetUser      UserDetails?     @relation("DirectNotifications", fields: [targetUserUid], references: [uid])
+  reads           NotificationRead[]
+
+  @@index([targetUserUid])
+  @@index([targetHierarchyCode])
+  @@map("notification")
+}
+
+/// Per-user read state — a notification has no fixed recipient list (hierarchy
+/// targeting resolves dynamically), so read state is tracked per (notification, user)
+/// pair rather than as a column on Notification itself.
+model NotificationRead {
+  id             Int      @id @default(autoincrement())
+  notificationId Int      @map("notification_id")
+  userUid        Int      @map("user_uid")
+  readAt         DateTime @default(now()) @map("read_at")
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         UserDetails   @relation(fields: [userUid], references: [uid], onDelete: Cascade)
+
+  @@unique([notificationId, userUid])
+  @@index([userUid])
+  @@map("notification_read")
+}
+
+/**
+ * Append-only log of menu selections, kept for 7 days (see MENU_USAGE_RETENTION_DAYS).
+ *
+ * Deliberately has NO foreign keys and denormalises company/app/menu names: inserts sit on
+ * the click path, so they skip constraint checks entirely, and a log row stays meaningful
+ * after the menu or user it refers to is deleted.
+ */
+model MenuUsageLog {
+  id          Int      @id @default(autoincrement())
+  userUid     Int      @map("user_uid")
+  username    String
+  companyCode String   @map("company_code")
+  appCode     String?  @map("app_code")
+  menuCode    String   @map("menu_code")
+  menuName    String   @map("menu_name")
+  /// Top-level menu the selection sits under, e.g. "Utilities". Null when the item is itself top-level.
+  mainMenu    String?  @map("main_menu")
+  /// Second-level menu, e.g. "Sample". Null for items only one level deep.
+  subMenu     String?  @map("sub_menu")
+  routePath   String?  @map("route_path")
+  selectedAt  DateTime @default(now()) @map("selected_at")
+
+  @@index([selectedAt])
+  @@index([userUid, selectedAt])
+  @@map("menu_usage_log")
+}

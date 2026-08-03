@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SIHL Synapse — Technical Architecture</title>
+<link rel="stylesheet" href="assets/print.css">
+</head>
+<body>
+
+<section class="cover">
+  <div class="cover-band">
+    <div class="product">Shah Investor's Home Limited</div>
+    <h1>Synapse</h1>
+    <div class="sub">Technical Architecture</div>
+  </div>
+  <div class="cover-meta">
+    <table>
+      <tr><td>Document</td><td>Technical Architecture and Design</td></tr>
+      <tr><td>System</td><td>Synapse — centralised access and reporting platform</td></tr>
+      <tr><td>Version</td><td>1.0</td></tr>
+      <tr><td>Status</td><td>Current as built</td></tr>
+      <tr><td>Audience</td><td>Engineers, architects, DBAs, operations</td></tr>
+      <tr><td>Prerequisite</td><td>Business Requirements Specification v1.0</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>Architectural Principles</li>
+    <li>Technology Stack</li>
+    <li>System Structure
+      <ol><li>Layers</li><li>Request lifecycle</li><li>Source layout</li></ol></li>
+    <li>Data Model</li>
+    <li>Authorisation Model</li>
+    <li>Dynamic Report and Form Engine
+      <ol><li>Configuration entities</li><li>Query binding</li><li>Report mode</li><li>Form mode</li><li>Drill-down</li></ol></li>
+    <li>Front-End Architecture</li>
+    <li>Security Design</li>
+    <li>Performance and Scalability</li>
+    <li>Data Retention and Housekeeping</li>
+    <li>Theming and Internationalisation</li>
+    <li>Build, Environment and Deployment</li>
+    <li>Operational Runbook</li>
+    <li>Extension Guide</li>
+    <li>Known Constraints</li>
+  </ol>
+</section>
+
+<h2 class="new-page">1. Architectural Principles</h2>
+<p>Five decisions shape the rest of this document. Each was taken deliberately and should not be reversed without understanding the consequence.</p>
+
+<table class="data">
+  <tr><th class="id">#</th><th>Principle</th><th>Consequence</th></tr>
+  <tr><td class="id">P1</td><td><strong>Derive authorisation, never duplicate it.</strong> Application access follows from menu permissions rather than being stored separately.</td><td>No second permission list can contradict the first. One code path answers both "which menus" and "which applications".</td></tr>
+  <tr><td class="id">P2</td><td><strong>Configuration over code.</strong> Reports and forms are data, not source files.</td><td>Adding a report needs no release. The cost is that query text is stored in the database and must be treated as trusted, administrator-authored content.</td></tr>
+  <tr><td class="id">P3</td><td><strong>Trust structure, never trust values.</strong> Query text comes from administrators; every user-supplied value is bound as a parameter.</td><td>The engine can execute arbitrary administrator SQL without exposing an injection surface to end users.</td></tr>
+  <tr><td class="id">P4</td><td><strong>Enforce data rules in the query, not in the caller.</strong> Ownership filtering is applied by the engine.</td><td>A report author cannot leak another user's records by forgetting a condition.</td></tr>
+  <tr><td class="id">P5</td><td><strong>Prefer query-time filters to background jobs.</strong> Scheduling and retention are expressed as predicates.</td><td>No scheduler to operate or monitor; correctness does not depend on a job having run.</td></tr>
+</table>
+
+<h2>2. Technology Stack</h2>
+<table class="data">
+  <tr><th>Layer</th><th>Technology</th><th>Notes</th></tr>
+  <tr><td>Framework</td><td>Next.js 16, App Router, Turbopack</td><td>React Server Components by default; client components only where interactivity requires</td></tr>
+  <tr><td>Language</td><td>TypeScript (strict)</td><td></td></tr>
+  <tr><td>Styling</td><td>Tailwind CSS v4</td><td>CSS-first configuration; design tokens declared in <code>globals.css</code>, no <code>tailwind.config.ts</code></td></tr>
+  <tr><td>Database</td><td>PostgreSQL 16</td><td>Holds both platform configuration and reportable business data</td></tr>
+  <tr><td>Data access</td><td>Prisma 7 with driver adapters</td><td><code>@prisma/adapter-pg</code> over <code>pg</code>; client generated to <code>generated/prisma</code></td></tr>
+  <tr><td>Authentication</td><td><code>jose</code> (JWT) + <code>bcryptjs</code></td><td>Signed token in an httpOnly cookie</td></tr>
+  <tr><td>Validation</td><td><code>zod</code></td><td>One schema per administered entity, shared by create and update paths</td></tr>
+  <tr><td>Charting</td><td><code>recharts</code></td><td>Dashboard trend chart</td></tr>
+  <tr><td>Package manager</td><td>npm</td><td></td></tr>
+</table>
+
+<h2>3. System Structure</h2>
+
+<h3>3.1 Layers</h3>
+<pre><code>Browser
+  │  React client components (app shell, report runner, admin tables)
+  ▼
+Next.js server
+  │  Middleware (proxy.ts) ── session presence check, redirect
+  │  Server Components ───── page and layout rendering, data loading
+  │  Route Handlers ──────── /api/* JSON endpoints
+  ▼
+Domain libraries (src/lib)
+  │  auth · session · apps · menu · user-shell · report-sql
+  │  report-definition · report-format · menu-usage · admin-*
+  ▼
+Prisma Client ── PostgreSQL
+       └── typed model access          (platform configuration)
+       └── parameterised raw queries   (report/form engine)</code></pre>
+
+<h3>3.2 Request lifecycle</h3>
+<ol>
+  <li><strong>Middleware</strong> verifies that a session cookie exists and is validly signed, and redirects unauthenticated requests to the login page. It performs no database access.</li>
+  <li><strong>The application layout</strong> resolves the user's shell context — accessible applications, the active application, and the menu tree scoped to it — in a single pass.</li>
+  <li><strong>The page</strong> loads only what is specific to it. A report page loads its report definition and breadcrumb.</li>
+  <li><strong>Client components</strong> hydrate and take over interaction: filter entry, sorting, drill-down, administration dialogs.</li>
+  <li><strong>Route handlers</strong> serve subsequent data operations — running a report, saving a record, listing notifications.</li>
+</ol>
+
+<h3>3.3 Source layout</h3>
+<table class="data">
+  <tr><th>Path</th><th>Contents</th></tr>
+  <tr><td><code>src/app/(app)/</code></td><td>Authenticated area: shared layout, dashboard, report route, twelve administration pages, and the loading boundary</td></tr>
+  <tr><td><code>src/app/login/</code></td><td>Login page, branding panel and assistance dialog</td></tr>
+  <tr><td><code>src/app/api/</code></td><td>Route handlers: auth, admin CRUD, reports, favourites, notifications, apps, menu usage</td></tr>
+  <tr><td><code>src/components/app-shell/</code></td><td>Top bar, sidebar, application switcher, notification bell, and the shell context providers</td></tr>
+  <tr><td><code>src/components/admin/</code></td><td>The generic administration table and its nested editor dialogs</td></tr>
+  <tr><td><code>src/components/reports/</code></td><td>Report runner, dynamic filter field, results table, drill-down dialog</td></tr>
+  <tr><td><code>src/lib/</code></td><td>Domain logic, shared by server components and route handlers</td></tr>
+  <tr><td><code>prisma/</code></td><td>Schema, hand-authored migrations, seed script</td></tr>
+</table>
+
+<h2 class="new-page">4. Data Model</h2>
+<p>All tables and columns are mapped to snake_case names. Entities fall into four groups.</p>
+
+<h3>Identity and organisation</h3>
+<table class="data">
+  <tr><th>Entity</th><th>Key</th><th>Purpose and notable fields</th></tr>
+  <tr><td>CompanyMaster</td><td>companyCode</td><td>Legal entity; PAN, TAN, registered address, logo path</td></tr>
+  <tr><td>AppMaster</td><td>appCode</td><td>One product within a company; icon, logo, display order</td></tr>
+  <tr><td>HierarchyMaster</td><td>hierarchyCode</td><td>Flat lookup of organisational positions with sequence</td></tr>
+  <tr><td>ClientCategoryMaster</td><td>clientCategoryCode</td><td>Client classification, default <code>C00</code></td></tr>
+  <tr><td>UserDetails</td><td>uid</td><td>Credentials, contact, company, hierarchy, category, and <code>lastAppCode</code></td></tr>
+  <tr><td>PasswordHistory</td><td>id</td><td>Prior password hashes for reuse checks</td></tr>
+  <tr><td>UserIpMapping</td><td>id</td><td>Permitted IP patterns; absence of an active row means unrestricted</td></tr>
+  <tr><td>LoginLog</td><td>id</td><td>Audit of every attempt with outcome and reason</td></tr>
+</table>
+
+<h3>Navigation and authorisation</h3>
+<table class="data">
+  <tr><th>Entity</th><th>Key</th><th>Purpose and notable fields</th></tr>
+  <tr><td>MenuMaster</td><td>menuCode</td><td>Self-referencing three-level tree. <code>menuType</code> is ROUTE, REPORT or EXTERNAL. <code>appCode</code> is nullable, where null means global.</td></tr>
+  <tr><td>RoleMaster</td><td>roleCode</td><td>Named permission set, scoped to company and hierarchy</td></tr>
+  <tr><td>RoleMenuMap</td><td>id</td><td>Role to menu, unique on role + menu + company + hierarchy</td></tr>
+  <tr><td>UserRoleMap</td><td>id</td><td>User to role</td></tr>
+  <tr><td>UserFavoriteMenu</td><td>id</td><td>Per-user favourites, unique on user + menu</td></tr>
+</table>
+
+<h3>Report and form engine</h3>
+<table class="data">
+  <tr><th>Entity</th><th>Key</th><th>Purpose and notable fields</th></tr>
+  <tr><td>FilterComponentMaster</td><td>componentCode</td><td>Reusable input: type, data source (static list, query, or none), option query</td></tr>
+  <tr><td>FilterDefinition</td><td>filterId</td><td>Named arrangement; collapsible and default-collapsed behaviour</td></tr>
+  <tr><td>FilterDefinitionItem</td><td>id</td><td>Placement of a component: row, position, mandatory, label override, default, <code>mappedColumn</code> for form mode, <code>dependsOnItemId</code> for cascading</td></tr>
+  <tr><td>ReportDefinition</td><td>reportId</td><td>Filter binding, mode, query text, target table, maximum rows, freeze columns, display style, footer note, permitted formats</td></tr>
+  <tr><td>ReportColumn</td><td>id</td><td>Display label and order, data type, decimals, highlight, total, identifier flag, and drill-down settings</td></tr>
+  <tr><td>ReportRowHighlightRule</td><td>id</td><td>Conditional row colouring by operator and comparison value</td></tr>
+</table>
+
+<h3>Communication and analytics</h3>
+<table class="data">
+  <tr><th>Entity</th><th>Key</th><th>Purpose and notable fields</th></tr>
+  <tr><td>Notification</td><td>id</td><td>Target type and target, delivery flags, message, optional schedule</td></tr>
+  <tr><td>NotificationRead</td><td>id</td><td>Per-recipient read state, unique on notification + user</td></tr>
+  <tr><td>MenuUsageLog</td><td>id</td><td>Denormalised selection record with no foreign keys; retained seven days</td></tr>
+</table>
+
+<div class="note"><strong>Why MenuUsageLog has no foreign keys.</strong> It is written on the click path, so inserts should not pay for constraint checks, and a log entry must remain meaningful after the menu or user it names has been deleted. The same reasoning applies to its denormalised company, application and menu names.</div>
+
+<h2>5. Authorisation Model</h2>
+<p>There is no user-to-application mapping table. Access is computed:</p>
+<pre><code>user
+  └─▶ active UserRoleMap        (role must be active)
+        └─▶ RoleMenuMap         (matched on user's company AND hierarchy)
+              └─▶ MenuMaster    (menu must be active)
+                    └─▶ appCode ─▶ AppMaster (must be active)</code></pre>
+
+<p><code>getAccessibleMenuCodes()</code> is the single source of truth for that chain and is shared by both menu resolution and application resolution, so the two can never disagree. It is wrapped in React's <code>cache()</code>, which memoises it for the duration of one request — the layout and a report page both need it during a full render, and this collapses that to one resolution. The memoisation is strictly per request; a permission change takes effect on the next navigation.</p>
+
+<p><strong>Global menus.</strong> A menu with a null <code>appCode</code> appears in every application but grants access to none. Administration is configured this way deliberately: scoping it to a single application would allow an administrator to switch application and lose the ability to reach App Master and switch back.</p>
+
+<p><strong>Active application resolution.</strong> The user's stored <code>lastAppCode</code> is honoured only if they still have access to it; otherwise the first available application is used. A deactivated application or a withdrawn role therefore degrades gracefully rather than blocking sign-in. <code>lastAppCode</code> deliberately has no foreign key for this reason.</p>
+
+<h2 class="new-page">6. Dynamic Report and Form Engine</h2>
+
+<h3>6.1 Configuration entities</h3>
+<p>A working report is three layers of configuration: reusable <em>components</em>, arranged into a <em>filter</em>, bound by a <em>report definition</em> to a query and display settings. Cascading is a property of the arrangement rather than the component, so the same component can be independent in one report and dependent in another.</p>
+
+<h3>6.2 Query binding</h3>
+<p><code>src/lib/report-sql.ts</code> parses <code>:paramName</code> tokens in the stored query, produces a positional-parameter statement and an ordered value array, and executes it. Values are never interpolated into the statement text. Identifiers that must reach SQL — table names, mapped columns, the ownership column — pass through an identifier safety check.</p>
+<p>A <code>DATE_RANGE</code> component binds as two parameters, <code>:CODE_FROM</code> and <code>:CODE_TO</code>.</p>
+
+<h3>6.3 Report mode</h3>
+<ol>
+  <li>Mandatory filter values are validated, and date ranges checked for sane ordering.</li>
+  <li>A count is taken first. If it exceeds <code>maxRows</code>, no data is fetched and the client is told to offer an export instead.</li>
+  <li>Otherwise rows and column metadata are returned and rendered.</li>
+  <li>On success the applied filter values are written into the page URL, which is what allows a browser Back from a drill-down to restore the report exactly as it was.</li>
+</ol>
+
+<h3>6.4 Form mode</h3>
+<p>The same filter renders as a data-entry form. Each item's <code>mappedColumn</code> determines the column it writes. Ownership is enforced inside the statement, not by the caller:</p>
+<pre><code>-- listing the user's own records
+SELECT * FROM (&lt;queryText&gt;) w WHERE w.created_by = $1
+
+-- update and delete carry the same check
+UPDATE &lt;table&gt; SET ... WHERE &lt;id&gt; = $1 AND created_by = $2 RETURNING *
+DELETE FROM &lt;table&gt;      WHERE &lt;id&gt; = $1 AND created_by = $2 RETURNING &lt;id&gt;</code></pre>
+<p>Because the list query is wrapped, the configured query text must include <code>created_by</code> in its projection. Target tables must carry <code>created_by</code>, <code>updated_by</code> and <code>updated_on</code>; the engine populates them from the session on every write.</p>
+
+<h3>6.5 Drill-down</h3>
+<p>A column may open another report, either as a full page with a back link (PAGE) or in a sized popup (MODAL). Filter values carry across automatically: the entire current value set is forwarded and the target ignores any key that is not one of its own component codes. This is why a summary and its detail report should reuse the same component codes for anything intended to travel.</p>
+<p>Where a column's meaning depends on another filter in the same report — for example a single "Product / Region" column whose meaning depends on a grouping selection — the target parameter is stored as a discriminator map rather than a single code, and the current value of the named discriminator selects the destination parameter.</p>
+
+<h2>7. Front-End Architecture</h2>
+<p>The authenticated area is a shared layout wrapping a page slot. The layout renders the top bar and sidebar and establishes four context providers:</p>
+<table class="data">
+  <tr><th>Provider</th><th>Supplies</th><th>Why it exists</th></tr>
+  <tr><td>LanguageProvider</td><td>Current language and the <code>t()</code> lookup</td><td>Interface strings only; administrator-authored content is never translated</td></tr>
+  <tr><td>ActiveAppProvider</td><td>Active application code</td><td>Lets client pages scope their own fetches without re-resolving permissions server-side</td></tr>
+  <tr><td>NotificationsProvider</td><td>Notification list and a read-marking function</td><td>The bell and the sign-in popup render the same underlying data; one fetch, one source of read state</td></tr>
+  <tr><td>MenuUsageProvider</td><td>Menu position index and <code>logSelection()</code></td><td>Turns a click into a usage record using a map lookup, with no server round-trip to resolve position</td></tr>
+</table>
+
+<p><strong>Navigation behaviour.</strong> Menu items are client-side links; the top bar and sidebar are never remounted by navigation. A loading boundary under the authenticated area streams the incoming page, so the shell stays visible and interactive while only the content region changes. That boundary also enables link prefetching, which Next.js otherwise skips for dynamic routes.</p>
+
+<p><strong>Application switching</strong> writes the selection server-side, then navigates and refreshes. Because the menu tree is resolved in a server component, a refresh is what actually swaps it. The content region is keyed on the active application so client pages genuinely remount — without that, a page that loads data once on mount would continue showing the previous application's data.</p>
+
+<h2>8. Security Design</h2>
+<table class="data">
+  <tr><th>Concern</th><th>Control</th></tr>
+  <tr><td>Credential storage</td><td>bcrypt hashes only. Password history retained for reuse checks. Hashes are excluded from every export path.</td></tr>
+  <tr><td>Session</td><td>Signed JWT in an httpOnly cookie with a fixed lifetime. The signing secret is read at start-up and the process fails immediately if it is absent, rather than issuing unverifiable tokens.</td></tr>
+  <tr><td>Route protection</td><td>Middleware verifies the token signature before any authenticated route renders. Server-side helpers re-check the session; administration routes additionally require the administrator check.</td></tr>
+  <tr><td>Network restriction</td><td>Optional per-user IP patterns with wildcard octets, evaluated at login.</td></tr>
+  <tr><td>SQL injection</td><td>User values are always bound parameters. Query <em>text</em> is administrator-authored and reachable only behind the administrator check. Identifiers are validated before interpolation.</td></tr>
+  <tr><td>Record visibility</td><td>Ownership predicates are part of the statement, so they cannot be omitted by configuration.</td></tr>
+  <tr><td>Privilege escalation</td><td>Application selection is re-validated server-side against the user's derived entitlements before being stored.</td></tr>
+  <tr><td>Attribution</td><td>Usage and notification writes take identity from the session, never from the request body.</td></tr>
+</table>
+
+<h2 class="new-page">9. Performance and Scalability</h2>
+
+<h3>9.1 Single-pass shell resolution</h3>
+<p>Composing the individual helpers to build the shell ran the permission chain twice and re-read the user record a third time. <code>getUserShellContext()</code> resolves applications, active application and the scoped menu tree in one pass. Measured on the reference dataset:</p>
+<table class="data">
+  <tr><th>Approach</th><th>Time</th></tr>
+  <tr><td>Single-pass <code>getUserShellContext()</code></td><td>18 ms</td></tr>
+  <tr><td>Composed helpers (previous)</td><td>42 ms</td></tr>
+</table>
+<p>Both paths were verified to produce identical applications, active application and menu tree for every user before the change was adopted.</p>
+
+<h3>9.2 Indexing</h3>
+<p>PostgreSQL does not index foreign keys automatically. Indexes were added on the paths resolved on every request and on tables that grow without bound:</p>
+<ul>
+  <li><code>role_menu_map (company_code, hierarchy_code, role_code)</code> — the hottest path, evaluated on every page render — and <code>(menu_code)</code>.</li>
+  <li><code>menu_master</code> on <code>app_code</code>, <code>parent_menu_code</code> and <code>(company_code, hierarchy_code)</code>.</li>
+  <li>Audit and history tables — <code>login_logs</code>, <code>user_ip_mapping</code>, <code>password_history</code> — on <code>user_uid</code>.</li>
+  <li>Engine child tables — <code>report_column</code>, <code>report_row_highlight_rule</code>, <code>filter_definition_item</code> — on their parent key.</li>
+  <li><code>menu_usage_log</code> on <code>selected_at</code> and <code>(user_uid, selected_at)</code>, serving both the retention purge and the top-N read.</li>
+</ul>
+
+<h3>9.3 Other measures</h3>
+<table class="data">
+  <tr><th>Measure</th><th>Effect</th></tr>
+  <tr><td>Request-scoped memoisation of the permission chain</td><td>Layout and page share one resolution per render</td></tr>
+  <tr><td>Loading boundary under the authenticated area</td><td>Shell remains interactive during navigation; enables prefetch on dynamic routes</td></tr>
+  <tr><td>Single shared notifications fetch</td><td>Removes a duplicate request per page load and a second source of read state</td></tr>
+  <tr><td>Favourites and usage shortcuts take the application from the caller</td><td>Avoids re-running the permission chain in endpoints already fenced to the user's own rows</td></tr>
+  <tr><td>Fire-and-forget usage logging with <code>keepalive</code></td><td>Survives the navigation it accompanies without delaying it</td></tr>
+  <tr><td>Row-count check before fetching report data</td><td>Prevents rendering oversized result sets</td></tr>
+  <tr><td>Server-side paging on User Master</td><td>The one administration list expected to grow large</td></tr>
+</table>
+
+<div class="warn"><strong>Scaling watch-points.</strong> Administration lists other than User Master load in full and would need paging if any grows to thousands of rows — Menu Master is the most likely first. Report queries are executed synchronously; long-running analytical queries should be moved to the deferred export design rather than run interactively.</div>
+
+<h2>10. Data Retention and Housekeeping</h2>
+<table class="data">
+  <tr><th>Data</th><th>Retention</th><th>Mechanism</th></tr>
+  <tr><td>Menu usage log</td><td>7 days</td><td>Reads filter by the cutoff, so the window is correct regardless of housekeeping. A purge runs at most once an hour per process, triggered by a write.</td></tr>
+  <tr><td>Login log</td><td>Indefinite</td><td>Audit record; no automatic purge</td></tr>
+  <tr><td>Password history</td><td>Indefinite</td><td>Required for reuse checks</td></tr>
+  <tr><td>Notifications</td><td>Indefinite</td><td>Deactivate rather than delete to preserve the record</td></tr>
+</table>
+<p>Scheduled notifications use the same principle: a future-dated message simply does not match the read query yet. There is no dispatch job, and therefore no failure mode where a job did not run.</p>
+
+<h2>11. Theming and Internationalisation</h2>
+<p>Three themes — day, night and hybrid — are expressed as CSS custom properties on the document root, with the palette taken from SIHL's public website. Alongside surface and text tokens there are semantic status tokens (<code>success</code>, <code>danger</code>, <code>warning</code>, <code>warning-surface</code>, <code>overlay</code>) and two chart colours, each defined per theme so that status colouring remains legible on dark backgrounds.</p>
+<div class="note"><strong>Charts read tokens at runtime.</strong> Recharts writes stroke as an SVG presentation attribute, where <code>var()</code> does not resolve. The dashboard therefore reads the chart tokens from the document and re-reads them when the theme attribute changes.</div>
+<p>Ten languages are supported. Only interface chrome is translated; menu names, report titles and other administrator-authored content are stored once and shown as entered. Every new interface string must be added to all ten dictionaries.</p>
+
+<h2>12. Build, Environment and Deployment</h2>
+<table class="data">
+  <tr><th>Command</th><th>Purpose</th></tr>
+  <tr><td><code>npm run dev</code></td><td>Development server</td></tr>
+  <tr><td><code>npm run build</code></td><td>Production build; also the strongest pre-release check, catching server/client boundary violations that type-checking does not</td></tr>
+  <tr><td><code>npm start</code></td><td>Serve the production build</td></tr>
+  <tr><td><code>npm run lint</code></td><td>ESLint</td></tr>
+  <tr><td><code>npx prisma db seed</code></td><td>Reference data and the worked reporting example</td></tr>
+</table>
+<p>Required environment variables:</p>
+<pre><code>DATABASE_URL    postgresql://user:password@host:5432/sihl_synapse
+SESSION_SECRET  random string, 32+ characters</code></pre>
+
+<h2 class="new-page">13. Operational Runbook</h2>
+
+<h3>13.1 Applying a schema change</h3>
+<div class="warn"><strong>Never run <code>prisma migrate dev</code> or <code>prisma db push</code> against this database.</strong> It contains at least one hand-created table that is not a Prisma model, and both commands plan to drop it.</div>
+<pre><code>1. Edit prisma/schema.prisma
+2. Hand-write prisma/migrations/&lt;timestamp&gt;_&lt;name&gt;/migration.sql
+3. npx prisma db execute --file prisma/migrations/&lt;name&gt;/migration.sql
+4. npx prisma migrate resolve --applied &lt;name&gt;
+5. npx prisma generate
+6. Restart the running server (see 13.2)</code></pre>
+<p><code>prisma db execute</code> takes no <code>--schema</code> flag; it reads the Prisma config file. Prefer <code>ADD COLUMN IF NOT EXISTS</code> for columns on unmanaged tables so existing databases upgrade in place.</p>
+
+<h3>13.2 After regenerating the Prisma client</h3>
+<p>A running development server holds the previous client in memory. Stop the process, delete the <code>.next</code> directory and restart. Symptom of skipping this: new models appear missing at runtime while the code type-checks cleanly.</p>
+
+<h3>13.3 Verifying a change</h3>
+<ul>
+  <li><code>npx tsc --noEmit</code> and <code>npm run lint</code> for correctness and style.</li>
+  <li><code>npm run build</code> to catch server/client boundary errors.</li>
+  <li>Start the development server and confirm no CSS or compilation errors — the development CSS pipeline catches malformed stylesheets that the production build tolerates.</li>
+</ul>
+
+<h2>14. Extension Guide</h2>
+
+<h3>14.1 Adding a report</h3>
+<ol class="step">
+  <li><b>Components.</b> Create any filter components that do not already exist. Reuse existing ones wherever the meaning matches — this is what makes drill-down carry-over work.</li>
+  <li><b>Filter.</b> Create a filter and arrange the components by row and position, marking mandatory items.</li>
+  <li><b>Report.</b> Create the report definition with mode REPORT, the parameterised query, maximum rows and display settings.</li>
+  <li><b>Columns.</b> Define each column with its label, order and data type; set decimals, totals and highlighting as needed.</li>
+  <li><b>Menu.</b> Add a menu option of type REPORT pointing at the report, assign it to an application, and grant it to the appropriate roles.</li>
+</ol>
+
+<h3>14.2 Adding a data-entry form</h3>
+<p>As above, with mode FORM, a target table, and a <code>mappedColumn</code> on every filter item. Mark the primary key column as the identifier. The target table must carry <code>created_by</code>, <code>updated_by</code> and <code>updated_on</code>, and the list query must project <code>created_by</code>.</p>
+
+<h3>14.3 Adding an application</h3>
+<p>Create the application in App Master, then assign menus to it. Access follows automatically for anyone whose role grants one of those menus. Leave cross-cutting menus unassigned so they remain available in every application.</p>
+
+<h2>15. Known Constraints</h2>
+<table class="data">
+  <tr><th>Constraint</th><th>Impact</th></tr>
+  <tr><td>Report queries execute synchronously</td><td>Long-running queries hold a request open; the deferred export design exists but is not implemented</td></tr>
+  <tr><td>Export is CSV only</td><td>Excel and PDF output are future work</td></tr>
+  <tr><td>Administration lists other than User Master are unpaged</td><td>Acceptable at current volumes; Menu Master is the first likely to need paging</td></tr>
+  <tr><td>Usage analytics limited to seven days</td><td>Trend analysis beyond a week is not possible without a retention change</td></tr>
+  <tr><td>Retention purge is per process</td><td>In a multi-instance deployment each instance purges independently; harmless but redundant</td></tr>
+  <tr><td>Dashboard statistics are indicative</td><td>Stat tiles and the trend chart are not yet wired to live data</td></tr>
+</table>
+
+<footer class="doc-end">
+  SIHL Synapse — Technical Architecture, version 1.0. Companion documents: Business Requirements Specification; User Guidelines.
+</footer>
+
+</body>
+</html>

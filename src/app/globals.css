@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+/* Colors and gradient stops are lifted directly from the SIHL public website
+   (C:\Projects\SIHL_website\website) — not invented independently. Night/hybrid
+   have no equivalent there (the site is light-only), so they're derived from the
+   site's own dark hero-gradient navy tones rather than an arbitrary dark palette. */
+
+/* Default (pre-hydration) — same values as the "day" theme below. */
+:root {
+  --background: #f7fafd;
+  --foreground: #1a2332;
+  --surface: #ebf4ff;
+  --border-color: #e2ecf4;
+  --card: #ffffff;
+  --chrome-background: #ffffff;
+  --chrome-foreground: #2b3a4a;
+  --chrome-border: #e2ecf4;
+  --chrome-surface: #ebf4ff;
+
+  --brand-navy: #0a5281;
+  --brand-teal: #1d8f6a;
+  --brand-green: #66bb46;
+  --brand-dark: #2b3a4a;
+  --brand-muted: #5c6e80;
+  --brand-gradient: linear-gradient(135deg, #0a5281 0%, #1d8f6a 55%, #66bb46 100%);
+  --hero-gradient: linear-gradient(135deg, #0a3d6b 0%, #0d2744 60%, #081a2f 100%);
+  /* Status colours. Kept as tokens so day/night stay legible: the surface variants are
+     tinted backgrounds for banners, the base variants are text/icon strength. */
+  --success: #1d8f6a;
+  --danger: #c0342b;
+  --warning: #a8700c;
+  --warning-surface: #fdf5e4;
+  --warning-border: #e6c98a;
+  --overlay: rgb(15 34 51 / 0.45);
+  --chart-1: #1c5fa0;
+  --chart-2: #c98a1f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border-color);
+  --color-card: var(--card);
+  --color-chrome-background: var(--chrome-background);
+  --color-chrome-foreground: var(--chrome-foreground);
+  --color-chrome-border: var(--chrome-border);
+  --color-chrome-surface: var(--chrome-surface);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-green: var(--brand-green);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-muted: var(--brand-muted);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-border: var(--warning-border);
+  --color-overlay: var(--overlay);
+  --font-sans: var(--font-montserrat);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Pre-hydration nicety only — once JS mounts, AppShellClient always sets an
+   explicit data-theme (day/night/hybrid) and this media query no longer applies. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --background: #0d2744;
+    --foreground: #e8f0f7;
+    --surface: #13324f;
+    --border-color: #1c3f5e;
+    --card: #0f2c4d;
+    --chrome-background: #081a2f;
+    --chrome-foreground: #e8f0f7;
+    --chrome-border: #12324a;
+    --chrome-surface: #14385a;
+    --success: #45c295;
+    --danger: #f2837a;
+    --warning: #e8b45c;
+    --warning-surface: #35290f;
+    --warning-border: #6b5320;
+    --overlay: rgb(3 12 22 / 0.65);
+    --chart-1: #6aa9e0;
+    --chart-2: #e8b45c;
+  }
+}
+
+/* Day: the SIHL site's own light theme, verbatim. */
+:root[data-theme="day"] {
+  --background: #f7fafd;
+  --foreground: #1a2332;
+  --surface: #ebf4ff;
+  --border-color: #e2ecf4;
+  --card: #ffffff;
+  --chrome-background: #ffffff;
+  --chrome-foreground: #2b3a4a;
+  --chrome-border: #e2ecf4;
+  --chrome-surface: #ebf4ff;
+  /* Status colours. Kept as tokens so day/night stay legible: the surface variants are
+     tinted backgrounds for banners, the base variants are text/icon strength. */
+  --success: #1d8f6a;
+  --danger: #c0342b;
+  --warning: #a8700c;
+  --warning-surface: #fdf5e4;
+  --warning-border: #e6c98a;
+  --overlay: rgb(15 34 51 / 0.45);
+  --chart-1: #1c5fa0;
+  --chart-2: #c98a1f;
+}
+
+/* Night: dark navy from the site's own hero-gradient stops (#0A3D6B/#0D2744/#081A2F),
+   not an unrelated slate — deliberately not near-black. */
+:root[data-theme="night"] {
+  --background: #0d2744;
+  --foreground: #e8f0f7;
+  --surface: #13324f;
+  --border-color: #1c3f5e;
+  --card: #0f2c4d;
+  --chrome-background: #081a2f;
+  --chrome-foreground: #e8f0f7;
+  --chrome-border: #12324a;
+  --chrome-surface: #14385a;
+  --success: #45c295;
+  --danger: #f2837a;
+  --warning: #e8b45c;
+  --warning-surface: #35290f;
+  --warning-border: #6b5320;
+  --overlay: rgb(3 12 22 / 0.65);
+  --chart-1: #6aa9e0;
+  --chart-2: #e8b45c;
+}
+
+/* Hybrid: a genuine mix — dark hero-navy chrome (top bar + sidebar) like night,
+   light content area like day. Not "follow system", a distinct third look. */
+:root[data-theme="hybrid"] {
+  --background: #f7fafd;
+  --foreground: #1a2332;
+  --surface: #ebf4ff;
+  --border-color: #e2ecf4;
+  --card: #ffffff;
+  --chrome-background: #0d2744;
+  --chrome-foreground: #e8f0f7;
+  --chrome-border: #12324a;
+  --chrome-surface: #14385a;
+  /* Status colours. Kept as tokens so day/night stay legible: the surface variants are
+     tinted backgrounds for banners, the base variants are text/icon strength. */
+  --success: #1d8f6a;
+  --danger: #c0342b;
+  --warning: #a8700c;
+  --warning-surface: #fdf5e4;
+  --warning-border: #e6c98a;
+  --overlay: rgb(15 34 51 / 0.45);
+  --chart-1: #1c5fa0;
+  --chart-2: #c98a1f;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Matches the SIHL site's gradient text-fill treatment on its brand wordmark. */
+.brand-gradient-text {
+  background-image: var(--brand-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Matches the SIHL site's primary button (.btn-pri): brand gradient, white text. */
+.btn-brand {
+  background-image: var(--brand-gradient);
+  color: #ffffff;
+}
