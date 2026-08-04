@@ -31,7 +31,11 @@ Report/filter query text is administrator-authored and executed dynamically, so 
 - **Reads use `prismaReadOnly`; only engine-built writes use `prisma`.** `runBoundQuery` is the read path, `runWriteQuery` the write path — if you add a FORM-mode write, use the latter or it will fail against the read-only role. Set `DATABASE_URL_READONLY` to a role with no write grants; without it the connection falls back to the main one and only the application-level guard protects you (`REPORT_DB_IS_READONLY` reports which).
 - **Scoping is applied by the engine, not by the query author.** `withSessionParams()` overlays reserved `:SESSION_COMPANY` / `:SESSION_HIERARCHY` / `:SESSION_USER` / `:SESSION_USER_UID` params *last*, so a submitted value can never spoof identity. Setting `ReportDefinition.companyScopeColumn` makes `applyCompanyScope()` wrap the result exactly as FORM mode wraps ownership. **Run and export must apply identical scoping** — otherwise a restricted report widens simply by being downloaded.
 
-Pure logic lives in `src/lib/sql-core.ts` (no `server-only`) so it is unit tested; `report-sql.ts` is the execution layer. Run `npm test`.
+Pure logic lives in `src/lib/sql-core.ts` and `src/lib/menu-core.ts` (no `server-only`, no Prisma import) so it can be unit tested; `report-sql.ts`, `menu.ts` and `user-shell.ts` are the DB-backed layers around them. Any new access or scoping *rule* belongs in a `-core` module with a test, not inline in a query. Run `npm test`.
+
+### Session validity
+
+`getSession()` is the only place a request's identity is established, and it re-checks `UserDetails.isActive` on every call (memoised per request with React `cache()`). The session JWT stays cryptographically valid for its full 8 hours, so without that check, deactivating someone in User Master would not take effect until their token expired. Never decode the session cookie directly to bypass it, and don't move the active-user check out to individual call sites — it will be forgotten on the next route someone adds.
 
 ### Download file naming
 

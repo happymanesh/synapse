@@ -1,6 +1,8 @@
 import "server-only";
+import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { prisma } from "@/lib/db";
 
 export interface SessionPayload {
   userUid: number;
@@ -51,11 +53,30 @@ export async function createSession(payload: SessionPayload): Promise<void> {
   });
 }
 
+/**
+ * Memoised per request: getSession() is read by the layout, the sidebar and every
+ * API route in a single render, and they must not each cost a round trip.
+ */
+const isUserActive = cache(async (userUid: number): Promise<boolean> => {
+  const user = await prisma.userDetails.findUnique({
+    where: { uid: userUid },
+    select: { isActive: true },
+  });
+  return user?.isActive === true;
+});
+
 export async function getSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
   const session = cookieStore.get(SESSION_COOKIE)?.value;
   if (!session) return null;
-  return decrypt(session);
+  const payload = await decrypt(session);
+  if (!payload) return null;
+  // The token stays cryptographically valid for its full 8 hours, so deactivating
+  // someone in User Master would otherwise leave them working until it expired.
+  // The check belongs here — the one path every route reads the session through —
+  // rather than at each call site, where it would eventually be forgotten.
+  if (!(await isUserActive(payload.userUid))) return null;
+  return payload;
 }
 
 export async function deleteSession(): Promise<void> {

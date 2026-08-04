@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { buildMenuTree, type MenuItem } from "@/lib/menu";
+import { buildMenuTree, pickActiveApp, scopeMenusToApp, type MenuItem } from "@/lib/menu-core";
 import type { AppItem } from "@/lib/apps";
 
 export interface UserShellContext {
@@ -70,11 +70,8 @@ export async function getUserShellContext(userUid: number): Promise<UserShellCon
     icon: a.icon,
     logoUrl: a.appLogoUrl,
   }));
-  const activeApp = apps.find((a) => a.code === user.lastAppCode) ?? apps[0] ?? null;
-
-  // Global menus (appCode = null) stay visible in every app — that's what keeps
-  // Administration reachable regardless of which app is selected.
-  const scoped = activeApp ? menus.filter((m) => m.appCode === activeApp.code || m.appCode === null) : menus;
+  const activeApp = pickActiveApp(apps, user.lastAppCode);
+  const scoped = scopeMenusToApp(menus, activeApp?.code ?? null);
 
   return { apps, activeApp, menuItems: buildMenuTree(scoped) };
 }

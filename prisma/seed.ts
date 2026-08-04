@@ -308,15 +308,27 @@ async function main() {
     }
   }
 
+  // Upserted rather than left to the createMany below: that call uses
+  // skipDuplicates, so an existing row would keep its old — unscoped — query
+  // forever. This one is security-relevant, so re-seeding must be able to fix it.
+  const salesCompanyComponent = {
+    componentName: "Company",
+    componentType: "DROPDOWN",
+    dataSourceType: "SQL",
+    // Scoped to the caller: without this a user could pick any company and, if the
+    // report had no companyScopeColumn, read another company's book.
+    dataSourceQuery:
+      "SELECT company_code as value, company_name as label FROM company_master " +
+      "WHERE is_active = true AND company_code = :SESSION_COMPANY ORDER BY company_name",
+  };
+  await prisma.filterComponentMaster.upsert({
+    where: { componentCode: "SALES_COMPANY" },
+    update: salesCompanyComponent,
+    create: { componentCode: "SALES_COMPANY", ...salesCompanyComponent },
+  });
+
   await prisma.filterComponentMaster.createMany({
     data: [
-      {
-        componentCode: "SALES_COMPANY",
-        componentName: "Company",
-        componentType: "DROPDOWN",
-        dataSourceType: "SQL",
-        dataSourceQuery: "SELECT company_code as value, company_name as label FROM company_master WHERE is_active = true ORDER BY company_name",
-      },
       { componentCode: "SALES_DATE_RANGE", componentName: "Sale Date Range", componentType: "DATE_RANGE", dataSourceType: "NONE" },
       {
         componentCode: "SALES_SUMMARY_TYPE",
@@ -432,6 +444,9 @@ async function main() {
   }
 
   const salesReportData = {
+    // Enforced by the engine, so the report cannot return another company's rows
+    // even if the query author omits a predicate.
+    companyScopeColumn: "company_code",
     reportTitle: "Sales Report",
     filterId: "SALES_REPORT_FILTER",
     mode: "REPORT",
@@ -480,6 +495,9 @@ async function main() {
   // --- Sales Detail (the drill-down target — created first, since Sales Summary's
   // group_value column below references it via a real FK) ---
   const salesDetailData = {
+    // Enforced by the engine, so the report cannot return another company's rows
+    // even if the query author omits a predicate.
+    companyScopeColumn: "company_code",
     reportTitle: "Sales Detail",
     filterId: "SALES_DETAIL_FILTER",
     mode: "REPORT",
@@ -526,6 +544,9 @@ async function main() {
 
   // --- Sales Summary (productwise/regionwise grouping, drills into Sales Detail) ---
   const salesSummaryData = {
+    // Enforced by the engine, so the report cannot return another company's rows
+    // even if the query author omits a predicate.
+    companyScopeColumn: "company_code",
     reportTitle: "Sales Summary",
     filterId: "SALES_SUMMARY_FILTER",
     mode: "REPORT",

@@ -1,56 +1,12 @@
 import { prisma } from "@/lib/db";
 import { getAccessibleMenuCodes } from "@/lib/apps";
+import { buildMenuTree, scopeMenusToApp } from "@/lib/menu-core";
 
-export interface MenuItem {
-  code: string;
-  name: string;
-  icon?: string;
-  routePath?: string;
-  menuType?: string;
-  externalUrl?: string;
-  children?: MenuItem[];
-}
-
-export interface MenuRow {
-  menuCode: string;
-  parentMenuCode: string | null;
-  menuName: string;
-  icon: string | null;
-  routePath: string | null;
-  displayOrder: number;
-  menuType: string;
-  externalUrl: string | null;
-  reportId: string | null;
-}
-
-export function buildMenuTree(menus: MenuRow[]): MenuItem[] {
-  const byCode = new Map<string, MenuItem>(
-    menus.map((m) => [
-      m.menuCode,
-      {
-        code: m.menuCode,
-        name: m.menuName,
-        icon: m.icon ?? undefined,
-        routePath: m.menuType === "REPORT" && m.reportId ? `/reports/${m.reportId}` : (m.routePath ?? undefined),
-        menuType: m.menuType,
-        externalUrl: m.externalUrl ?? undefined,
-        children: [],
-      },
-    ])
-  );
-
-  const roots: MenuItem[] = [];
-  for (const m of menus) {
-    const node = byCode.get(m.menuCode)!;
-    const parent = m.parentMenuCode ? byCode.get(m.parentMenuCode) : undefined;
-    if (parent) {
-      parent.children!.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  return roots;
-}
+// The tree/breadcrumb/scoping rules live in menu-core so they can be unit tested
+// without a database; re-exported here so existing importers are unaffected.
+export { buildMenuTree, findBreadcrumb, scopeMenusToApp, pickActiveApp } from "@/lib/menu-core";
+export type { MenuItem, MenuRow } from "@/lib/menu-core";
+import type { MenuItem } from "@/lib/menu-core";
 
 /**
  * Resolves the menu tree for a user: user -> active roles -> role_menu_map
@@ -67,25 +23,9 @@ export async function getMenuForUser(userUid: number, appCode?: string | null): 
   if (menuCodes.length === 0) return [];
 
   const menus = await prisma.menuMaster.findMany({
-    where: {
-      menuCode: { in: menuCodes },
-      ...(appCode ? { OR: [{ appCode }, { appCode: null }] } : {}),
-    },
+    where: { menuCode: { in: menuCodes } },
     orderBy: { displayOrder: "asc" },
   });
 
-  return buildMenuTree(menus);
-}
-
-/** DFS: the chain of names from a root item down to the node whose routePath matches, or null if not found. */
-export function findBreadcrumb(items: MenuItem[], routePath: string, trail: string[] = []): string[] | null {
-  for (const item of items) {
-    const path = [...trail, item.name];
-    if (item.routePath === routePath) return path;
-    if (item.children?.length) {
-      const found = findBreadcrumb(item.children, routePath, path);
-      if (found) return found;
-    }
-  }
-  return null;
+  return buildMenuTree(scopeMenusToApp(menus, appCode ?? null));
 }

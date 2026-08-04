@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { prisma } from "@/lib/db";
+import { pickActiveApp } from "@/lib/menu-core";
 
 export interface AppItem {
   code: string;
@@ -90,5 +91,5 @@ export async function resolveActiveApp(userUid: number, apps: AppItem[]): Promis
     where: { uid: userUid },
     select: { lastAppCode: true },
   });
-  return apps.find((a) => a.code === user?.lastAppCode) ?? apps[0];
+  return pickActiveApp(apps, user?.lastAppCode ?? null);
 }
