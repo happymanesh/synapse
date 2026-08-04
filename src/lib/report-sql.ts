@@ -1,120 +1,74 @@
 import "server-only";
-import { prisma } from "@/lib/db";
-
-export interface BoundQuery {
-  sql: string;
-  params: unknown[];
-}
-
-/**
- * Trust boundary for this whole module: query *text* (templates, table names,
- * column names) always comes from admin-authored FilterComponentMaster /
- * FilterDefinitionItem / ReportDefinition rows — only reachable via
- * requireAdmin()-gated routes — so it's trusted content, not attacker input.
- * Runtime *values* (whatever an end user submits in the filter form) are never
- * concatenated into SQL text; they're always passed as separate bound
- * parameters via $queryRawUnsafe's rest args, which the pg driver escapes.
- */
-
-const NAMED_PARAM_PATTERN = /(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)/g;
-const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+import { prisma, prismaReadOnly } from "@/lib/db";
+import {
+  assertSafeIdentifier,
+  assertSelectOnly,
+  bindNamedParams,
+  wrapWithScope,
+  type BoundQuery,
+  type SessionScope,
+} from "@/lib/sql-core";
 
 /**
- * A form field left blank submits "" (or is missing entirely), not null — and
- * "" is a real, distinct SQL value ("status = ''" matches nothing, it doesn't
- * mean "no filter"). Every place that builds paramValues from submitted form
- * values must route through this so an empty field means "not filtered."
+ * Server-only execution layer for the report/form engine. All the pure logic — binding,
+ * identifier safety, the read-only statement guard, session scoping — lives in sql-core.ts
+ * so it can be unit tested; this file only decides *how* and *against which connection* a
+ * query runs.
+ *
+ * Two rules hold everywhere below:
+ *  1. Administrator-authored templates always pass through assertSelectOnly() before
+ *     execution, and always run on the read-only connection.
+ *  2. Engine-built writes (INSERT/UPDATE/DELETE for FORM mode) are assembled here from a
+ *     table name plus column names — never from free text — and run on the main connection.
  */
-export function resolveFilterValue(submitted: unknown, defaultValue: unknown): unknown {
-  if (submitted === undefined || submitted === null || submitted === "") {
-    return defaultValue === undefined || defaultValue === "" ? null : defaultValue;
-  }
-  return submitted;
+
+export * from "@/lib/sql-core";
+
+// ---------------------------------------------------------------------------
+// Reads — administrator-authored templates
+// ---------------------------------------------------------------------------
+
+/** Binds an admin template after proving it is read-only. Every read path starts here. */
+export function bindReportTemplate(template: string, values: Record<string, unknown>): BoundQuery {
+  assertSelectOnly(template);
+  return bindNamedParams(template, values);
 }
 
-/** Whether a submitted value satisfies a mandatory filter/field — DATE_RANGE needs both halves. */
-export function isFilterValuePresent(componentType: string, value: unknown): boolean {
-  if (value === undefined || value === null || value === "") return false;
-  if (componentType === "DATE_RANGE") {
-    const [from, to] = String(value).split(",");
-    return !!from && !!to;
-  }
-  return true;
-}
-
-export interface FilterItemForBinding {
-  componentCode: string;
-  defaultValue: string | null;
-  componentType: string;
-}
-
-/**
- * Builds the {paramName: value} map used to bind a report's queryText.
- * DATE_RANGE is the one component type that needs two SQL parameters from a
- * single filter item — the client stores it as one "from,to" string, but a
- * query needs separate :CODE_FROM / :CODE_TO placeholders to filter a date
- * column, so it's expanded here rather than left as an unusable combined value.
- */
-export function buildParamValues(
-  items: FilterItemForBinding[],
-  submittedValues: Record<string, unknown>
-): Record<string, unknown> {
-  const paramValues: Record<string, unknown> = {};
-  for (const item of items) {
-    const raw = submittedValues[item.componentCode];
-    if (item.componentType === "DATE_RANGE") {
-      const combined = typeof raw === "string" && raw !== "" ? raw : (item.defaultValue ?? "");
-      const [from, to] = combined.split(",");
-      paramValues[`${item.componentCode}_FROM`] = from || null;
-      paramValues[`${item.componentCode}_TO`] = to || null;
-    } else {
-      paramValues[item.componentCode] = resolveFilterValue(raw, item.defaultValue);
-    }
-  }
-  return paramValues;
-}
-
-function assertSafeIdentifier(name: string): void {
-  if (!SAFE_IDENTIFIER_PATTERN.test(name)) {
-    throw new Error(`Unsafe SQL identifier: ${name}`);
-  }
-}
-
-/** Replaces :paramName tokens with positional $1/$2/... placeholders, building a matching params array. */
-export function bindNamedParams(template: string, values: Record<string, unknown>): BoundQuery {
-  const params: unknown[] = [];
-  const paramIndex = new Map<string, number>();
-
-  const sql = template.replace(NAMED_PARAM_PATTERN, (_match, name: string) => {
-    let index = paramIndex.get(name);
-    if (index === undefined) {
-      params.push(values[name] ?? null);
-      index = params.length;
-      paramIndex.set(name, index);
-    }
-    return `$${index}`;
-  });
-
-  return { sql, params };
-}
-
+/** Executes a already-bound read on the read-only connection. */
 export async function runBoundQuery<T = Record<string, unknown>>(bound: BoundQuery): Promise<T[]> {
-  return prisma.$queryRawUnsafe<T[]>(bound.sql, ...bound.params);
+  return prismaReadOnly.$queryRawUnsafe<T[]>(bound.sql, ...bound.params);
 }
 
 export async function runParameterizedQuery<T = Record<string, unknown>>(
   template: string,
   values: Record<string, unknown>
 ): Promise<T[]> {
-  return runBoundQuery<T>(bindNamedParams(template, values));
+  return runBoundQuery<T>(bindReportTemplate(template, values));
 }
 
 /** Runs COUNT(*) around a template without fetching the underlying rows — used for the maxRows guard. */
 export async function countParameterizedQuery(template: string, values: Record<string, unknown>): Promise<number> {
-  const { sql, params } = bindNamedParams(template, values);
+  const { sql, params } = bindReportTemplate(template, values);
   const wrapped = `SELECT COUNT(*)::int AS count FROM (${sql}) __count_wrapper`;
-  const result = await prisma.$queryRawUnsafe<{ count: number }[]>(wrapped, ...params);
+  const result = await prismaReadOnly.$queryRawUnsafe<{ count: number }[]>(wrapped, ...params);
   return result[0]?.count ?? 0;
+}
+
+/**
+ * Applies the company scope a report opts into via ReportDefinition.companyScopeColumn.
+ *
+ * REPORT mode used to rely entirely on the query author remembering a company predicate,
+ * while FORM mode enforced ownership itself — an asymmetry that made cross-company leakage
+ * a single forgotten WHERE clause away. When the column is configured the predicate is now
+ * applied by the engine, exactly as ownership is.
+ */
+export function applyCompanyScope(
+  bound: BoundQuery,
+  companyScopeColumn: string | null,
+  scope: SessionScope
+): BoundQuery {
+  if (!companyScopeColumn) return bound;
+  return wrapWithScope(bound, companyScopeColumn, scope.companyCode, "__company_scope");
 }
 
 /** FORM mode "my records" list: binds the admin's template, then wraps it with an owner filter the engine enforces itself. */
@@ -124,10 +78,20 @@ export function bindAndWrapWithOwnership(
   ownerColumn: string,
   ownerValue: string
 ): BoundQuery {
-  assertSafeIdentifier(ownerColumn);
-  const { sql, params } = bindNamedParams(template, values);
-  const wrapped = `SELECT * FROM (${sql}) __owned_wrapper WHERE __owned_wrapper.${ownerColumn} = $${params.length + 1}`;
-  return { sql: wrapped, params: [...params, ownerValue] };
+  return wrapWithScope(bindReportTemplate(template, values), ownerColumn, ownerValue, "__owned_wrapper");
+}
+
+// ---------------------------------------------------------------------------
+// Writes — engine-built, never from free text
+// ---------------------------------------------------------------------------
+
+/** Executes an engine-built write on the main (writable) connection. */
+async function runWrite<T = Record<string, unknown>>(bound: BoundQuery): Promise<T[]> {
+  return prisma.$queryRawUnsafe<T[]>(bound.sql, ...bound.params);
+}
+
+export async function runWriteQuery<T = Record<string, unknown>>(bound: BoundQuery): Promise<T[]> {
+  return runWrite<T>(bound);
 }
 
 export function buildInsertQuery(table: string, columnValues: Record<string, unknown>): BoundQuery {

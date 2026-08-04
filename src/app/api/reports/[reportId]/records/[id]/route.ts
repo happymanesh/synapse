@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { buildOwnedDeleteQuery, runBoundQuery } from "@/lib/report-sql";
+import { buildOwnedDeleteQuery, runWriteQuery } from "@/lib/report-sql";
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ reportId: string; id: string }> }) {
   const session = await getSession();
@@ -22,7 +22,7 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
 
   try {
     const bound = buildOwnedDeleteQuery(report.targetTable, identifierColumn, id, "created_by", session.username);
-    const rows = await runBoundQuery(bound);
+    const rows = await runWriteQuery(bound);
     if (rows.length === 0) {
       return NextResponse.json({ error: "Record not found, or you don't have permission to delete it." }, { status: 403 });
     }

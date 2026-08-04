@@ -46,6 +46,7 @@ Environment variables (`.env`):
 
 ```
 DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/sihl_synapse
+DATABASE_URL_READONLY=<optional but recommended; a role with SELECT only>
 SESSION_SECRET=<random 32+ char string>
 SEED_USER_PASSWORD=<optional; password for the seeded accounts>
 ```
@@ -170,6 +171,27 @@ Identifiers that do reach SQL (table names, `mappedColumn`, owner column) pass t
 `assertSafeIdentifier()`.
 
 `DATE_RANGE` components split into two bound params: `:CODE_FROM` and `:CODE_TO`.
+
+### 4.2b Report SQL is read-only and engine-scoped
+
+Two controls sit under the "trusted structure" bet, because trusting an administrator is not
+the same as accepting that a compromised admin account owns the database:
+
+- **`assertSelectOnly()` gates every admin-authored template.** Rejects non-SELECT/WITH,
+  multi-statement input, and data-modifying constructs anywhere — including inside a CTE,
+  since Postgres allows `WITH x AS (DELETE … RETURNING *)`. Matching is by syntactic shape
+  (`DELETE\s+FROM`) rather than bare keywords, so `SELECT start, last_update FROM t` survives.
+- **Reads run on `prismaReadOnly`** (a Postgres role with no write grants, via
+  `DATABASE_URL_READONLY`); only engine-built writes use `prisma`. Application guard plus
+  database privilege, so a guard bypass still cannot modify data.
+- **Scoping is engine-applied.** `withSessionParams()` overlays reserved `:SESSION_COMPANY`,
+  `:SESSION_HIERARCHY`, `:SESSION_USER`, `:SESSION_USER_UID` *last*, so submitted values
+  cannot spoof identity; `ReportDefinition.companyScopeColumn` makes the engine wrap results
+  the way FORM mode wraps ownership. Run and export apply identical scoping.
+
+Pure logic lives in `src/lib/sql-core.ts` (deliberately no `server-only`, so it is unit
+testable); `report-sql.ts` is the execution layer. `npm test` runs the suite via `node:test`
+and `tsx` — no test framework dependency.
 
 ### 4.3 User-owned records
 

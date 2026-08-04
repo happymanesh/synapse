@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { buildParamValues, countParameterizedQuery, isFilterValuePresent, runParameterizedQuery } from "@/lib/report-sql";
+import {
+  applyCompanyScope,
+  bindReportTemplate,
+  buildParamValues,
+  isFilterValuePresent,
+  runBoundQuery,
+  withSessionParams,
+} from "@/lib/report-sql";
+import { prismaReadOnly } from "@/lib/db";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ reportId: string }> }) {
   const session = await getSession();
@@ -37,17 +45,34 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
     );
   }
 
-  const paramValues = buildParamValues(
-    report.filter.items.map((item) => ({
-      componentCode: item.componentCode,
-      defaultValue: item.defaultValue,
-      componentType: item.component.componentType,
-    })),
-    values
+  // Reserved SESSION_* params are overlaid last, so a filter component sharing one of those
+  // names can never let a caller present themselves as another company or user.
+  const paramValues = withSessionParams(
+    buildParamValues(
+      report.filter.items.map((item) => ({
+        componentCode: item.componentCode,
+        defaultValue: item.defaultValue,
+        componentType: item.component.componentType,
+      })),
+      values
+    ),
+    session
   );
 
   try {
-    const total = await countParameterizedQuery(report.queryText, paramValues);
+    // bindReportTemplate proves the query is read-only; applyCompanyScope adds the company
+    // predicate when the report opts into it, so scoping does not rely on the query author.
+    const scoped = applyCompanyScope(
+      bindReportTemplate(report.queryText, paramValues),
+      report.companyScopeColumn,
+      session
+    );
+
+    const countResult = await prismaReadOnly.$queryRawUnsafe<{ count: number }[]>(
+      `SELECT COUNT(*)::int AS count FROM (${scoped.sql}) __count_wrapper`,
+      ...scoped.params
+    );
+    const total = countResult[0]?.count ?? 0;
     if (total > report.maxRows) {
       return NextResponse.json({
         exceeded: true,
@@ -57,7 +82,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
       });
     }
 
-    const rows = await runParameterizedQuery(report.queryText, paramValues);
+    const rows = await runBoundQuery(scoped);
     return NextResponse.json({
       exceeded: false,
       rows,

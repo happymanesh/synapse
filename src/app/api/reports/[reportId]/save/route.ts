@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { buildInsertQuery, buildOwnedUpdateQuery, isFilterValuePresent, runBoundQuery } from "@/lib/report-sql";
+import { buildInsertQuery, buildOwnedUpdateQuery, isFilterValuePresent, runWriteQuery } from "@/lib/report-sql";
 
 /**
  * FORM-mode target tables are expected to have created_by/updated_by/updated_on
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
         updated_by: session.username,
         updated_on: new Date(),
       });
-      const rows = await runBoundQuery(bound);
+      const rows = await runWriteQuery(bound);
       if (rows.length === 0) {
         return NextResponse.json({ error: "Record not found, or you don't have permission to edit it." }, { status: 403 });
       }
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
       updated_by: session.username,
       updated_on: new Date(),
     });
-    const rows = await runBoundQuery(bound);
+    const rows = await runWriteQuery(bound);
     return NextResponse.json(rows[0], { status: 201 });
   } catch (err) {
     console.error(err);

@@ -51,6 +51,12 @@ export default async function ReportsAdminPage() {
     },
     { name: "queryText", label: "Query (use :componentCode as named params)", type: "textarea", required: true },
     { name: "targetTable", label: "Target table", type: "text", showWhen: { field: "mode", equals: "FORM" } },
+    {
+      name: "companyScopeColumn",
+      label: "Restrict rows to the user's company by this column (leave blank for no restriction)",
+      type: "text",
+      showWhen: { field: "mode", equals: "REPORT" },
+    },
     { name: "maxRows", label: "Max rows before forcing export", type: "number", defaultValue: 2000 },
     { name: "freezeColumns", label: "Freeze columns from left", type: "number", defaultValue: 0 },
     {

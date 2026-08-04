@@ -153,6 +153,7 @@ export const reportDefinitionSchema = z.object({
   mode: z.enum(["REPORT", "FORM"]).default("REPORT"),
   queryText: z.string().min(1),
   targetTable: z.string().optional().nullable(),
+  companyScopeColumn: optionalStringSchema,
   maxRows: z.coerce.number().int().min(1).default(2000),
   freezeColumns: z.coerce.number().int().min(0).default(0),
   displayStyle: z.enum(["PAGED", "FULL_FROZEN"]).default("PAGED"),

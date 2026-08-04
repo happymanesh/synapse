@@ -312,6 +312,10 @@ model ReportDefinition {
   mode              String   @default("REPORT") @map("mode") // REPORT | FORM
   queryText         String   @map("query_text")
   targetTable       String?  @map("target_table")
+  /// When set, the engine wraps this report's results with `WHERE <column> = <caller's
+  /// company>`. Enforced in SQL exactly as FORM-mode ownership is, so cross-company
+  /// leakage cannot happen merely because a query author forgot a predicate.
+  companyScopeColumn String? @map("company_scope_column")
   maxRows           Int      @default(2000) @map("max_rows")
   freezeColumns     Int      @default(0) @map("freeze_columns")
   displayStyle      String   @default("PAGED") @map("display_style") // PAGED | FULL_FROZEN

@@ -23,6 +23,16 @@ npx prisma generate
 
 **After `prisma generate`, restart the dev server** (kill the process, delete `.next`, restart). A running `next dev` keeps the old Prisma client in memory, so new models appear "missing" at runtime while the code type-checks fine.
 
+### Report SQL is read-only, and scoped by the engine
+
+Report/filter query text is administrator-authored and executed dynamically, so two controls sit under it. Neither is optional.
+
+- **`assertSelectOnly()` runs before every admin-authored template executes** — `bindReportTemplate()` is the only sanctioned entry point, and `runParameterizedQuery` / `countParameterizedQuery` / `bindAndWrapWithOwnership` all route through it. It rejects anything not starting with SELECT/WITH, anything after a `;`, and data-modifying constructs *anywhere* — including inside a CTE, because Postgres genuinely permits `WITH x AS (DELETE … RETURNING *)`. Keyword matching is by syntactic shape (`DELETE\s+FROM`), not bare words, so `SELECT start, last_update FROM t` still works.
+- **Reads use `prismaReadOnly`; only engine-built writes use `prisma`.** `runBoundQuery` is the read path, `runWriteQuery` the write path — if you add a FORM-mode write, use the latter or it will fail against the read-only role. Set `DATABASE_URL_READONLY` to a role with no write grants; without it the connection falls back to the main one and only the application-level guard protects you (`REPORT_DB_IS_READONLY` reports which).
+- **Scoping is applied by the engine, not by the query author.** `withSessionParams()` overlays reserved `:SESSION_COMPANY` / `:SESSION_HIERARCHY` / `:SESSION_USER` / `:SESSION_USER_UID` params *last*, so a submitted value can never spoof identity. Setting `ReportDefinition.companyScopeColumn` makes `applyCompanyScope()` wrap the result exactly as FORM mode wraps ownership. **Run and export must apply identical scoping** — otherwise a restricted report widens simply by being downloaded.
+
+Pure logic lives in `src/lib/sql-core.ts` (no `server-only`) so it is unit tested; `report-sql.ts` is the execution layer. Run `npm test`.
+
 ### Download file naming
 
 Every file this app lets a user download (CSV exports today; any future export/report/document download) is named:

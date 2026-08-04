@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { buildParamValues, runParameterizedQuery } from "@/lib/report-sql";
+import { applyCompanyScope, bindReportTemplate, buildParamValues, runBoundQuery, withSessionParams } from "@/lib/report-sql";
 import { csvEscape, formatCsvValue } from "@/lib/csv";
 import { buildDownloadFilename } from "@/lib/download";
 
@@ -36,17 +36,27 @@ export async function GET(request: NextRequest, context: { params: Promise<{ rep
     }
   }
 
-  const paramValues = buildParamValues(
-    report.filter.items.map((item) => ({
-      componentCode: item.componentCode,
-      defaultValue: item.defaultValue,
-      componentType: item.component.componentType,
-    })),
-    values
+  // Export must apply exactly the same scoping as the on-screen run — otherwise a report
+  // restricted by company could be widened simply by downloading it instead of viewing it.
+  const paramValues = withSessionParams(
+    buildParamValues(
+      report.filter.items.map((item) => ({
+        componentCode: item.componentCode,
+        defaultValue: item.defaultValue,
+        componentType: item.component.componentType,
+      })),
+      values
+    ),
+    session
   );
 
   try {
-    const rows = await runParameterizedQuery<Record<string, unknown>>(report.queryText, paramValues);
+    const scoped = applyCompanyScope(
+      bindReportTemplate(report.queryText, paramValues),
+      report.companyScopeColumn,
+      session
+    );
+    const rows = await runBoundQuery<Record<string, unknown>>(scoped);
     const columns =
       report.columns.length > 0
         ? report.columns

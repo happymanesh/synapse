@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SIHL Synapse — Issue Tracker & Service Request System — Business Requirements Specification</title>
+<link rel="stylesheet" href="assets/print.css">
+</head>
+<body>
+
+<section class="cover">
+  <div class="cover-band">
+    <div class="product">Shah Investor's Home Limited</div>
+    <h1>Issue Tracker &amp;<br>Service Request System</h1>
+    <div class="sub">Business Requirements Specification — a module of Synapse</div>
+  </div>
+  <div class="cover-meta">
+    <table>
+      <tr><td>Document</td><td>Business Requirements Specification (BRS)</td></tr>
+      <tr><td>System</td><td>Issue Tracker &amp; Service Request System, embedded within SIHL Synapse</td></tr>
+      <tr><td>Organisation</td><td>Shah Investor's Home Limited (SIHL), SEBI-registered stockbroker</td></tr>
+      <tr><td>Version</td><td>1.0</td></tr>
+      <tr><td>Status</td><td>Draft — Phase 1 ready for build; Phase 2/3 directional</td></tr>
+      <tr><td>Audience</td><td>Management, business stakeholders, project sponsors</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>Purpose and Scope
+      <ol><li>Purpose</li><li>In scope — Phase 1</li><li>Out of scope / explicitly deferred</li></ol></li>
+    <li>Business Context</li>
+    <li>Stakeholders and User Roles</li>
+    <li>Business Objectives</li>
+    <li>Functional Requirements — Phase 1
+      <ol>
+        <li>Ticket intake</li>
+        <li>Identity resolution</li>
+        <li>Categorisation</li>
+        <li>Duplicate detection and merge</li>
+        <li>Resolution lifecycle</li>
+        <li>Change request conversion</li>
+        <li>Automated service requests</li>
+        <li>Reporting</li>
+      </ol></li>
+    <li>Business Rules</li>
+    <li>Non-Functional Requirements</li>
+    <li>Indicative Data Entities</li>
+    <li>Assumptions, Dependencies and Constraints</li>
+    <li>Roadmap and Future Phases</li>
+    <li>Technology Stack</li>
+    <li>Glossary</li>
+  </ol>
+</section>
+
+<h2 class="new-page">1. Purpose and Scope</h2>
+
+<h3>1.1 Purpose</h3>
+<p>SIHL currently handles issues and service requests informally — phone calls into RMS, ad-hoc WhatsApp threads, undocumented email chases — with no single record of what was raised, by whom, or how long it took to resolve. This has already produced avoidable outcomes, including a client penalty caused by a verbal instruction being misheard over a phone call to RMS.</p>
+<p>This module gives SIHL a <strong>single ticketing and service-request system</strong>, embedded in Synapse, covering every channel through which an issue can be raised, with a complete audit trail from intake to resolution.</p>
+
+<h3>1.2 In scope — Phase 1</h3>
+<ul>
+  <li>Ticket intake across Website, WhatsApp, Phone and the Synapse application itself.</li>
+  <li>Automatic identification of the raiser against existing Synapse master data, with a fallback path for people not yet on record.</li>
+  <li>A predefined, business-owned issue taxonomy used for both routing and reporting.</li>
+  <li>Detection and merge of duplicate tickets, confirmed by a human before anything is combined.</li>
+  <li>A resolution workflow with forwarding, reminders and a complete audit trail.</li>
+  <li>Conversion of larger requirements into change requests, gated by management approval.</li>
+  <li>Automated delivery of routine documents (ledgers, margin reports, contract notes) as a lighter-weight service-request flow.</li>
+  <li>A basic operational stats report.</li>
+</ul>
+
+<h3>1.3 Out of scope / explicitly deferred</h3>
+<ul>
+  <li><strong>Management dashboard</strong> (CEO Command Center integration) — Phase 2.</li>
+  <li><strong>Automated email intake</strong> via Google APIs — Phase 3.</li>
+  <li><strong>Solutions repository and after-hours chatbot</strong> — Phase 3.</li>
+  <li><strong>OTP/MFA on document requests</strong> — considered and explicitly not included; email/mobile match against master data is sufficient for Phase 1.</li>
+  <li><strong>Severity-tiered response SLAs</strong> — considered and explicitly not included; Phase 1 uses one flat response target for every ticket.</li>
+</ul>
+
+<h2>2. Business Context</h2>
+<p>SIHL's support load spans internal employees, B2B customers, associate partners, clients and prospects, arriving through whichever channel is most convenient for the person raising the issue. Without a shared system of record, three problems recur:</p>
+<ul>
+  <li><strong>No accountability trail.</strong> When an issue is handled by phone or informal chat, there is no record of who decided what, which becomes a real liability when a decision turns out to be wrong.</li>
+  <li><strong>Duplicated effort.</strong> The same issue is often raised more than once across different channels, with no mechanism to recognise and merge it.</li>
+  <li><strong>Manual, repetitive service work.</strong> Routine document requests (ledgers, margin reports, contract notes) consume staff time that a simple automated flow can remove entirely.</li>
+</ul>
+<p>This module addresses all three by giving every issue a single, trackable record from the moment it is raised, and by automating the service requests that do not need human judgement at all.</p>
+
+<h2>3. Stakeholders and User Roles</h2>
+<table class="data">
+  <tr><th>Actor</th><th>Role in the system</th></tr>
+  <tr><td>Employee</td><td>Raises internal issues; may raise a request on behalf of a client</td></tr>
+  <tr><td>B2B customer / Client</td><td>Raises issues and service requests; already present in Synapse master data (hierarchy code 0800)</td></tr>
+  <tr><td>Associate partner / Prospect</td><td>Raises issues; typically absent from master data — handled via the guest ticket path</td></tr>
+  <tr><td>Support desk staff</td><td>Triages, resolves or forwards tickets</td></tr>
+  <tr><td>Support lead / desk head</td><td>Owns and revises the issue-category taxonomy</td></tr>
+  <tr><td>Product / Ops management</td><td>Approves conversion of tickets into change requests</td></tr>
+</table>
+
+<h2>4. Business Objectives</h2>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Objective</th><th>Success indicator</th></tr>
+  <tr><td class="id">OBJ-1</td><td>Give every issue a single, trackable record regardless of the channel it arrived on</td><td>100% of issues raised via Website, WhatsApp, Phone or Synapse produce a ticket</td></tr>
+  <tr><td class="id">OBJ-2</td><td>Remove ambiguity about who is accountable for an issue at any point in time</td><td>Every forward and status change is attributed and timestamped</td></tr>
+  <tr><td class="id">OBJ-3</td><td>Eliminate duplicate handling of the same issue</td><td>Duplicate tickets are surfaced to staff before they are worked twice</td></tr>
+  <tr><td class="id">OBJ-4</td><td>Remove manual effort from routine document requests</td><td>Ledger, margin report and contract note requests are delivered without staff intervention</td></tr>
+  <tr><td class="id">OBJ-5</td><td>Give management visibility into support volume and turnaround</td><td>A basic stats report in Phase 1, a full dashboard in Phase 2</td></tr>
+  <tr><td class="id">OBJ-6</td><td>Lay groundwork for after-hours self-service</td><td>Resolved-ticket history is structured well enough in Phase 1 to seed a curated solutions repository in Phase 3</td></tr>
+</table>
+
+<h2 class="new-page">5. Functional Requirements — Phase 1</h2>
+
+<h3>5.1 Ticket intake</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-1.1</td><td>Tickets may be raised via Website (using predefined subject lines mapped to prescribed reasons), WhatsApp, Phone (logged by staff on the caller's behalf), and the Synapse application's own ticket-raise screen.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.2</td><td>Email intake is not supported in Phase 1; automated email reading depends on the Google API integration deferred to Phase 3.</td><td>Must</td></tr>
+  <tr><td class="id">FR-1.3</td><td>Every ticket records: raiser identity (or guest details), channel, category, description, timestamp and initial status.</td><td>Must</td></tr>
+</table>
+
+<h3>5.2 Identity resolution</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-2.1</td><td>On ticket creation, the system resolves the raiser against existing Synapse master data by email or mobile number.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.2</td><td>If no match is found, the system creates a guest ticket, capturing name and contact details as given, without blocking ticket creation.</td><td>Must</td></tr>
+  <tr><td class="id">FR-2.3</td><td>Guest tickets may be reconciled to a master data record later, for example once a prospect is onboarded as a client.</td><td>Should</td></tr>
+  <tr><td class="id">FR-2.4</td><td>On creation, an automated registration notification (email or SMS) is sent confirming the ticket number and expected response window.</td><td>Must</td></tr>
+</table>
+
+<h3>5.3 Categorisation</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-3.1</td><td>A predefined issue taxonomy, structured as Product/Module × Issue Type, is used both to route tickets and as the reporting dimension.</td><td>Must</td></tr>
+  <tr><td class="id">FR-3.2</td><td>The taxonomy is owned and revised by the support lead / desk head as new issue patterns emerge.</td><td>Must</td></tr>
+  <tr><td class="id">FR-3.3</td><td>Category is selected at the point of intake, by the raiser on Website/Synapse or by staff when logging a Phone/WhatsApp ticket.</td><td>Must</td></tr>
+</table>
+
+<h3>5.4 Duplicate detection and merge</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-4.1</td><td>While a staff member is answering any ticket, the system surfaces other open tickets as likely duplicates using structured matching: same category, same client/entity, and raised within a rolling 24–48 hour window.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.2</td><td>Matching is deterministic on structured fields in Phase 1; free-text similarity matching is not included.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.3</td><td>Staff must manually confirm a duplicate via a checkbox before any merge takes place — the system never merges automatically.</td><td>Must</td></tr>
+  <tr><td class="id">FR-4.4</td><td>Confirmed duplicates are combined into a single thread, carrying forward both tickets' history.</td><td>Must</td></tr>
+</table>
+<div class="note"><strong>Note.</strong> The combined thread's turnaround-time clock uses the earlier of the two original raised timestamps, so merging cannot be used to understate elapsed time in the average-turnaround metric (§8, FR-8.1). Pending final sign-off.</div>
+
+<h3>5.5 Resolution lifecycle</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-5.1</td><td>Support desk staff resolve a ticket directly or forward it to another team member.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.2</td><td>Every forward is logged with who forwarded it, to whom, when and any accompanying remark, preserving a complete audit trail.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.3</td><td>Staff receive a daily morning reminder listing their pending tickets and burn-down status.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.4</td><td>Staff must update status and remarks on each ticket — marking it solved or providing a revised timeline.</td><td>Must</td></tr>
+  <tr><td class="id">FR-5.5</td><td>The initial response target is a flat 12–24 hours for every ticket, regardless of category. Severity-based SLA tiers are explicitly out of scope for Phase 1.</td><td>Must</td></tr>
+</table>
+
+<h3>5.6 Change request conversion</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-6.1</td><td>An issue identified as a larger development requirement, rather than a fixable bug, may be converted into a change request.</td><td>Must</td></tr>
+  <tr><td class="id">FR-6.2</td><td>Conversion requires approval from Product/Ops management; the support desk cannot park an item in the backlog unilaterally.</td><td>Must</td></tr>
+  <tr><td class="id">FR-6.3</td><td>On conversion, the originating ticket is closed with a notification that it is being considered for a future release, and the item is parked as an enhancement in the application backlog.</td><td>Must</td></tr>
+</table>
+
+<h3>5.7 Automated service requests</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-7.1</td><td>A lighter-weight flow, separate from the general ticket, handles automated document delivery: ledgers, margin reports and contract notes.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.2</td><td>Ledger requests require a mandatory client code.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.3</td><td>Verification for document delivery is by email/mobile match against master data; no additional OTP/MFA step is required in Phase 1.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.4</td><td>The generated document is emailed directly to the client's registered email address.</td><td>Must</td></tr>
+  <tr><td class="id">FR-7.5</td><td>If an employee raises the request on a client's behalf, the client is copied on the delivery for transparency.</td><td>Must</td></tr>
+</table>
+
+<h3>5.8 Reporting</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th><th>Priority</th></tr>
+  <tr><td class="id">FR-8.1</td><td>A stats report tracks daily ticket closures, new tickets raised, tickets forwarded and average turnaround time.</td><td>Must</td></tr>
+  <tr><td class="id">FR-8.2</td><td>No dashboard UI is included in Phase 1 — the CEO Command Center integration is Phase 2 (§12).</td><td>Must</td></tr>
+</table>
+
+<h2 class="new-page">6. Business Rules</h2>
+<p>These govern behaviour that is not self-evident from the requirements above and must be preserved in any future change.</p>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Rule</th></tr>
+  <tr><td class="id">BR-1</td><td>A ticket must never fail to be created because the raiser cannot be identified — the guest ticket path is the fallback, not an error state.</td></tr>
+  <tr><td class="id">BR-2</td><td>Tickets are never merged automatically; a human must confirm every merge.</td></tr>
+  <tr><td class="id">BR-3</td><td>Change requests can only be created through management approval — never unilaterally by the support desk.</td></tr>
+  <tr><td class="id">BR-4</td><td>Document service requests deliver only to the client's registered email address on file, never to an address supplied in the request itself.</td></tr>
+  <tr><td class="id">BR-5</td><td>The issue-category taxonomy has one accountable owner (the support lead / desk head) at all times.</td></tr>
+</table>
+
+<h2>7. Non-Functional Requirements</h2>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Requirement</th></tr>
+  <tr><td class="id">NFR-1</td><td>Ticketing data resides in the existing Synapse PostgreSQL database — no new datastore is introduced.</td></tr>
+  <tr><td class="id">NFR-2</td><td>Every status change and forward is attributable to a specific user and timestamp, supporting both operational audit and any future dispute resolution.</td></tr>
+  <tr><td class="id">NFR-3</td><td>Access control reuses Synapse's existing session and role model — no separate authentication system is introduced.</td></tr>
+  <tr><td class="id">NFR-4</td><td>Identity resolution and guest-ticket fallback must not introduce a blocking failure mode on ticket creation.</td></tr>
+</table>
+
+<h2>8. Indicative Data Entities</h2>
+<p>High-level entities anticipated for Phase 1; detailed column-level design is a technical-architecture concern, not covered in this business specification.</p>
+<table class="data">
+  <tr><th>Entity</th><th>Purpose</th></tr>
+  <tr><td>Ticket</td><td>The core record — raiser, channel, category, description, status, and merge linkage where applicable</td></tr>
+  <tr><td>Issue Category</td><td>The Product/Module × Issue Type taxonomy used for routing and reporting</td></tr>
+  <tr><td>Ticket Event</td><td>The audit log of forwards, status changes and remarks against a ticket</td></tr>
+  <tr><td>Service Request</td><td>Document-delivery requests, tracked separately from general tickets</td></tr>
+  <tr><td>Change Request</td><td>Items converted from a ticket and approved by Product/Ops management, linked back to their originating ticket</td></tr>
+</table>
+
+<h2>9. Assumptions, Dependencies and Constraints</h2>
+<h3>9.1 Assumptions</h3>
+<ul>
+  <li>Employees and clients already exist in Synapse master data (the existing <code>userdetails</code> / <code>hierarchy</code> tables), which identity resolution can query directly.</li>
+  <li>Associate partners and prospects are generally not present in master data, which is why the guest ticket path exists.</li>
+  <li>The support lead / desk head is available and willing to own the issue-category taxonomy on an ongoing basis.</li>
+</ul>
+<h3>9.2 Dependencies</h3>
+<ul>
+  <li>This module depends on Synapse's existing authentication, session and master-data model — it is built as a module inside Synapse, not a standalone system.</li>
+</ul>
+<h3>9.3 Constraints</h3>
+<ul>
+  <li>Google API email intake and the after-hours bot are out of scope until Phase 3, and the bot specifically depends on a populated, curated solutions repository — it cannot be brought forward ahead of that content existing.</li>
+</ul>
+
+<h2 class="new-page">10. Roadmap and Future Phases</h2>
+<table class="data">
+  <tr><th class="id">Phase</th><th>Contents</th><th>Depends on</th></tr>
+  <tr><td class="id">Phase 1</td><td>Core ticketing loop: multi-channel intake, identity resolution with guest fallback, categorisation, duplicate merge, resolution with audit trail, change-request conversion, automated document service requests, basic stats report</td><td>Synapse's existing authentication and master data</td></tr>
+  <tr><td class="id">Phase 2</td><td>CEO Command Center dashboard</td><td>Phase 1 data must exist and be reliable — this phase is purely additive reporting</td></tr>
+  <tr><td class="id">Phase 3</td><td>Google API email intake and auto-categorisation; solutions repository; after-hours bot</td><td>Phase 1 resolution history feeds the repository; the repository must hold curated content before the bot has anything reliable to answer from</td></tr>
+</table>
+
+<h3>10.1 Phase 2 — CEO Command Center dashboard (directional)</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Candidate capability</th><th>Note</th></tr>
+  <tr><td class="id">FUT-1</td><td>Ticket aging shown in buckets: 6h / 24h / 48h / &gt;48h</td><td>Builds on the turnaround data already captured in Phase 1</td></tr>
+  <tr><td class="id">FUT-2</td><td>Product-wise issue count table, expandable per product to the specific topics driving volume</td><td>Surfaces systemic problems, not just raw counts</td></tr>
+  <tr><td class="id">FUT-3</td><td>Exact dashboard KPI set</td><td>Not yet finalised — to be scoped at the start of Phase 2</td></tr>
+</table>
+
+<h3>10.2 Phase 3 — automation and self-service (directional)</h3>
+<table class="data">
+  <tr><th class="id">Ref</th><th>Candidate capability</th><th>Note</th></tr>
+  <tr><td class="id">FUT-4</td><td>Google API email intake, auto-categorising incoming email as problem vs. general query</td><td>Specific APIs not yet chosen — to be scoped at the start of this phase</td></tr>
+  <tr><td class="id">FUT-5</td><td>Solutions repository built from resolved tickets</td><td>A resolution must be marked "reusable" by a staff member before entering the bot's answerable corpus — nothing is auto-published</td></tr>
+  <tr><td class="id">FUT-6</td><td>After-hours bot on WhatsApp and Website chat</td><td>Answers strictly from the curated repository, given the compliance sensitivity of this domain; on no confident match it auto-creates a ticket for next-business-day human response rather than guessing</td></tr>
+</table>
+
+<h2>11. Technology Stack</h2>
+<p>This module is built inside Synapse rather than as a standalone service, since it already treats the Synapse application as a native intake channel and depends on Synapse's master data for identity resolution. Phase 1 requires no new stack decisions beyond one integration.</p>
+<table class="data">
+  <tr><th>Layer</th><th>Choice</th><th>Note</th></tr>
+  <tr><td>Framework</td><td>Next.js 16 (App Router)</td><td>Matches Synapse exactly</td></tr>
+  <tr><td>Database</td><td>PostgreSQL via Prisma</td><td>Same database as Synapse — no new datastore</td></tr>
+  <tr><td>Authentication</td><td>Existing Synapse session authentication</td><td>Reused as-is; no new auth system</td></tr>
+  <tr><td>UI</td><td>Tailwind CSS 4</td><td>Already in use</td></tr>
+  <tr><td>Reporting / charts</td><td>Recharts</td><td>Already in use; covers the Phase 1 stats report and the Phase 2 dashboard</td></tr>
+  <tr><td>New for Phase 1</td><td>WhatsApp Business Cloud API, or a provider such as Gupshup / Twilio</td><td>The only new integration required for Phase 1, needed for the WhatsApp channel</td></tr>
+  <tr><td>New for Phase 3</td><td>Google Workspace API (Gmail)</td><td>For email intake and auto-categorisation</td></tr>
+  <tr><td>New for Phase 3</td><td>An LLM API for the after-hours bot</td><td>Retrieval over the curated solutions repository; keyword/category matching may be sufficient before any semantic-search investment is needed</td></tr>
+</table>
+
+<h2>12. Glossary</h2>
+<table class="data">
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td>Ticket</td><td>A single tracked record of an issue, from intake through resolution.</td></tr>
+  <tr><td>Guest ticket</td><td>A ticket raised by someone not found in Synapse master data; captured with name and contact only, reconciled later.</td></tr>
+  <tr><td>Service request</td><td>A lighter-weight, automatable request — currently scoped to document delivery — distinct from a general support ticket.</td></tr>
+  <tr><td>Change request</td><td>A ticket reclassified as a development requirement and approved by management for the backlog, rather than resolved as a normal issue.</td></tr>
+  <tr><td>Solutions repository</td><td>A curated, human-approved set of past resolutions used to power the Phase 3 after-hours bot.</td></tr>
+  <tr><td>Master data</td><td>Synapse's existing <code>userdetails</code> / <code>hierarchy</code> tables, used to identify ticket raisers automatically.</td></tr>
+</table>
+
+<footer class="doc-end">
+  SIHL Synapse — Issue Tracker &amp; Service Request System, Business Requirements Specification, version 1.0. Companion document to the Synapse core document set.
+</footer>
+
+</body>
+</html>
