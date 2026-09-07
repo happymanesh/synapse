@@ -57,13 +57,17 @@ Any table that end users add/edit their own records into (as opposed to admin-ma
 
 Every report/results table in this app formats and sorts columns by their declared `dataType` (`TEXT | NUMBER | DATE | DATETIME` on `ReportColumn`), never by guessing from the raw value or by comparing formatted text:
 
-- `DATE` columns display as `dd-Mmm-yyyy` (e.g. `26-Jul-2026`), center-aligned.
-- `DATETIME` columns display as `dd-Mmm-yyyy hh:mm` (e.g. `26-Jul-2026 14:30`), center-aligned.
+- `DATE` columns display as `dd-Mmm-yy` (e.g. `26-Jul-26`), center-aligned.
+- `DATETIME` columns display as `dd-Mmm-yy hh:mm` (e.g. `26-Jul-26 14:30`), center-aligned.
+- **Seconds are not part of the default.** They are noise on a business date and only earn
+  their place where events can land inside the same minute and their *order* matters — the
+  ticket audit trail, and the timestamps behind a merge. Use `formatDateTimeSeconds()`
+  (`dd-Mmm-yy hh:mm:ss`) there, and only there.
 - `NUMBER` columns are right-aligned; set `decimalPlaces` on the column (e.g. `2` for an amount) to force that many decimals.
 - `TEXT` columns are left-aligned (the default).
 - Sorting a `DATE`/`DATETIME` column always compares the underlying `Date` value, never the formatted string — sorting text like `"26-Jul-2026"` alphabetically would sort by month name, not chronologically.
 
-Use `formatCellByType()`, `alignmentForType()`, and `compareByType()` from `src/lib/report-format.ts` for this — don't reimplement date/number formatting or sorting per report or per table. This applies to any tabular report/list in the app, not just the dynamic report engine's `ResultsTable`.
+Use `formatCellByType()`, `alignmentForType()`, `compareByType()`, and `formatDateTime()` / `formatDateTimeSeconds()` from `src/lib/report-format.ts` for this — don't reimplement date/number formatting or sorting per report or per table. This applies to any tabular report/list in the app, not just the dynamic report engine's `ResultsTable`.
 
 ### Report drill-down
 

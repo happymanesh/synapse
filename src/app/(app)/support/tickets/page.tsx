@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { listMyTickets } from "@/lib/tickets";
 import { formatDateTime } from "@/lib/report-format";
 import { StatusPill } from "@/components/support/ticket-ui";
+import { describeTicketType } from "@/lib/ticket-core";
 
 export default async function MyTicketsPage() {
   const session = await getSession();
@@ -40,7 +41,9 @@ export default async function MyTicketsPage() {
               <tr>
                 <th className="px-4 py-3 font-semibold">Ticket</th>
                 <th className="px-4 py-3 font-semibold">Subject</th>
-                <th className="px-4 py-3 font-semibold">Category</th>
+                <th className="px-4 py-3 font-semibold">Type</th>
+                <th className="px-4 py-3 font-semibold">Application</th>
+                <th className="px-4 py-3 font-semibold">Segment</th>
                 <th className="px-4 py-3 text-center font-semibold">Channel</th>
                 <th className="px-4 py-3 text-center font-semibold">Raised</th>
                 <th className="px-4 py-3 text-center font-semibold">Status</th>
@@ -58,7 +61,9 @@ export default async function MyTicketsPage() {
                     {t.subject}
                     {t.guestName && <span className="ml-2 text-xs text-foreground/50">for {t.guestName}</span>}
                   </td>
-                  <td className="px-4 py-3 text-foreground/80">{t.category.categoryName}</td>
+                  <td className="px-4 py-3 text-foreground/80">{describeTicketType(t.ticketType, t.typeOther)}</td>
+                  <td className="px-4 py-3 text-foreground/80">{t.application.name}</td>
+                  <td className="px-4 py-3 text-foreground/80">{t.segment.name}</td>
                   <td className="px-4 py-3 text-center text-xs text-foreground/70">{t.channel}</td>
                   {/* Centred, dd-Mmm-yyyy hh:mm — the DATETIME convention every table here follows. */}
                   <td className="whitespace-nowrap px-4 py-3 text-center text-foreground/80">

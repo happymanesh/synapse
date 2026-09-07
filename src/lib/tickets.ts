@@ -1,6 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { hasMenuAccess } from "@/lib/auth";
+import { NEW_OPTION_SENTINEL } from "@/lib/ticket-schemas";
+import { checkAttachment } from "@/lib/attachment-core";
 import { SUPPORT_MENU } from "@/lib/support-schemas";
 import {
   resolveRaiser,
@@ -61,9 +63,60 @@ export type TicketRaiser =
       clientCode: string | null;
     };
 
+/**
+ * Turns a submitted application/segment choice into a master-data id, creating the row when
+ * the raiser picked "add it".
+ *
+ * A submitted id is checked against the table rather than trusted — an id from a form is
+ * still caller input, and an unchecked one would attach a ticket to whatever row that number
+ * happens to name. New entries record who added them, since the raise screen can create them.
+ */
+async function resolveMasterId(
+  table: "application" | "segment",
+  submittedId: string,
+  newName: string | null,
+  username: string
+): Promise<number> {
+  const model = table === "application" ? prisma.applicationMaster : prisma.segmentMaster;
+
+  if (submittedId !== NEW_OPTION_SENTINEL) {
+    const id = Number(submittedId);
+    if (!Number.isInteger(id)) throw new Error(`Choose a valid ${table}.`);
+    const found = await (model as { findUnique: (a: unknown) => Promise<{ id: number } | null> }).findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!found) throw new Error(`That ${table} no longer exists.`);
+    return found.id;
+  }
+
+  const name = (newName ?? "").trim();
+  if (!name) throw new Error(`Enter the new ${table} name.`);
+  // Derive a stable code from the name, and reuse an existing row rather than creating a
+  // near-duplicate that would split every report by that axis.
+  const code = name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "UNNAMED";
+  const existing = await (model as { findUnique: (a: unknown) => Promise<{ id: number } | null> }).findUnique({
+    where: { code },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const created = await (model as { create: (a: unknown) => Promise<{ id: number }> }).create({
+    data: { code, name, displayOrder: 999, isActive: true, createdBy: username },
+    select: { id: true },
+  });
+  return created.id;
+}
+
 export interface CreateTicketArgs {
   channel: string;
-  categoryCode: string;
+  ticketType: string;
+  typeOther: string | null;
+  /** Master id as submitted, or NEW_OPTION_SENTINEL. */
+  applicationId: string;
+  applicationNew: string | null;
+  segmentId: string;
+  segmentNew: string | null;
   subject: string;
   description: string;
   companyCode: string;
@@ -137,6 +190,11 @@ export async function createTicket(args: CreateTicketArgs): Promise<CreateTicket
     }
   }
 
+  const [applicationId, segmentId] = await Promise.all([
+    resolveMasterId("application", args.applicationId, args.applicationNew, args.createdByUsername),
+    resolveMasterId("segment", args.segmentId, args.segmentNew, args.createdByUsername),
+  ]);
+
   // A ticket must never exist without its CREATED event — the audit trail (§5) would start
   // with a gap — so both are written together.
   return prisma.$transaction(async (tx) => {
@@ -149,7 +207,10 @@ export async function createTicket(args: CreateTicketArgs): Promise<CreateTicket
         guestMobile,
         clientCode,
         channel: args.channel,
-        categoryCode: args.categoryCode,
+        ticketType: args.ticketType,
+        typeOther: args.ticketType === "OTHERS" ? args.typeOther : null,
+        applicationId,
+        segmentId,
         subject: args.subject,
         description: args.description,
         companyCode: args.companyCode,
@@ -248,7 +309,10 @@ export async function listMyTickets(userUid: number, username: string) {
       raiserType: true,
       guestName: true,
       mergedIntoTicketId: true,
-      category: { select: { categoryName: true } },
+      ticketType: true,
+      typeOther: true,
+      application: { select: { name: true } },
+      segment: { select: { name: true } },
     },
   });
 }
@@ -269,6 +333,10 @@ const TICKET_DETAIL_SELECT = {
   guestMobile: true,
   clientCode: true,
   categoryCode: true,
+  ticketType: true,
+  typeOther: true,
+  applicationId: true,
+  segmentId: true,
   companyCode: true,
   assignedToUid: true,
   revisedEta: true,
@@ -295,7 +363,8 @@ export async function getTicketForViewer(id: number, userUid: number, username: 
     where: { id },
     select: {
       ...TICKET_DETAIL_SELECT,
-      category: { select: { categoryName: true, productModule: true, issueType: true } },
+      application: { select: { id: true, name: true } },
+      segment: { select: { id: true, name: true } },
       raiser: { select: { uid: true, fullName: true, username: true, email: true, mobile: true } },
       assignedTo: { select: { uid: true, fullName: true, username: true } },
       mergedInto: { select: { id: true, ticketNo: true } },
@@ -317,7 +386,8 @@ export async function getTicketForViewer(id: number, userUid: number, username: 
 /**
  * Open tickets that look like duplicates of this one (§4.4).
  *
- * SQL narrows to the same category inside the window; `ticket-core` then applies the actual
+ * SQL narrows to the same application AND type inside the window; `ticket-core` then
+ * applies the actual
  * rule, including the "two anonymous guests are not the same entity" guard that a SQL
  * predicate would get wrong.
  */
@@ -328,14 +398,15 @@ export async function findDuplicatesFor(ticket: TicketLike, windowHours = DUPLIC
   const rows = await prisma.ticket.findMany({
     where: {
       id: { not: ticket.id },
-      categoryCode: ticket.categoryCode,
+      applicationId: ticket.applicationId,
+      ticketType: ticket.ticketType,
       status: { in: [...OPEN_STATUSES] },
       mergedIntoTicketId: null,
       raisedAt: { gte: since, lte: until },
     },
     select: {
       ...TICKET_DETAIL_SELECT,
-      category: { select: { categoryName: true } },
+      application: { select: { name: true } },
     },
     take: 50,
   });
@@ -343,6 +414,72 @@ export async function findDuplicatesFor(ticket: TicketLike, windowHours = DUPLIC
   return findDuplicateCandidates(ticket, rows, windowHours).map(
     (t) => rows.find((r) => r.id === t.id)!
   );
+}
+
+/**
+ * Attachments on a ticket, without their bytes.
+ *
+ * `content` is deliberately not selected: Postgres stores it out of the main heap, so a
+ * listing that asks for it drags every file back to render a filename.
+ */
+export async function listAttachments(ticketId: number) {
+  return prisma.ticketAttachment.findMany({
+    where: { ticketId },
+    orderBy: { uploadedAt: "asc" },
+    select: { id: true, fileName: true, mimeType: true, byteSize: true, uploadedBy: true, uploadedAt: true },
+  });
+}
+
+/**
+ * Stores one file against a ticket, re-checking the caps against what is already there.
+ *
+ * The check runs here and not only in the browser: a direct POST bypasses the form entirely,
+ * and these bytes go into the shared database.
+ */
+export async function addAttachment(
+  ticketId: number,
+  file: { fileName: string; mimeType: string; bytes: Uint8Array<ArrayBuffer> },
+  username: string
+) {
+  const existing = await prisma.ticketAttachment.aggregate({
+    where: { ticketId },
+    _count: { _all: true },
+    _sum: { byteSize: true },
+  });
+
+  const check = checkAttachment(
+    { fileName: file.fileName, mimeType: file.mimeType, byteSize: file.bytes.byteLength },
+    { count: existing._count._all, totalBytes: existing._sum.byteSize ?? 0 }
+  );
+  if (!check.ok) throw new Error(check.reason);
+
+  return prisma.ticketAttachment.create({
+    data: {
+      ticketId,
+      fileName: check.fileName,
+      mimeType: file.mimeType,
+      byteSize: file.bytes.byteLength,
+      content: file.bytes,
+      uploadedBy: username,
+    },
+    select: { id: true, fileName: true, byteSize: true },
+  });
+}
+
+/** One attachment including its bytes, but only if the caller may see the ticket it hangs
+ * off — the attachment id alone must not be an access path around that check. */
+export async function getAttachmentForViewer(
+  ticketId: number,
+  attachmentId: number,
+  userUid: number,
+  username: string
+) {
+  const ticket = await getTicketForViewer(ticketId, userUid, username);
+  if (!ticket) return null;
+  return prisma.ticketAttachment.findFirst({
+    where: { id: attachmentId, ticketId },
+    select: { fileName: true, mimeType: true, byteSize: true, content: true },
+  });
 }
 
 export interface ActorContext {
@@ -619,7 +756,10 @@ export async function listTriageQueue(options: { status?: string; onlyMine?: num
       firstResponseAt: true,
       mergedIntoTicketId: true,
       guestName: true,
-      category: { select: { categoryName: true } },
+      ticketType: true,
+      typeOther: true,
+      application: { select: { name: true } },
+      segment: { select: { name: true } },
       raiser: { select: { fullName: true } },
       assignedTo: { select: { fullName: true } },
     },
@@ -638,10 +778,19 @@ export async function listForwardTargets(companyCode: string) {
   });
 }
 
-export async function listActiveCategories() {
-  return prisma.issueCategory.findMany({
+/** The two extensible classification axes offered on the raise screen. */
+export async function listApplications() {
+  return prisma.applicationMaster.findMany({
     where: { isActive: true },
-    orderBy: [{ displayOrder: "asc" }, { categoryName: "asc" }],
-    select: { categoryCode: true, categoryName: true, productModule: true },
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true },
+  });
+}
+
+export async function listSegments() {
+  return prisma.segmentMaster.findMany({
+    where: { isActive: true },
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true },
   });
 }

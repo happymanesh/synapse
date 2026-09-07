@@ -1,15 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { formatDateTime } from "@/lib/report-format";
+import { formatDateTime, formatDateTimeSeconds } from "@/lib/report-format";
 import {
   canLogForOthers,
   findDuplicatesFor,
   getTicketForViewer,
   listForwardTargets,
+  listAttachments,
   suggestIdentityMatches,
 } from "@/lib/tickets";
-import { allowedTransitions, canProposeChangeRequest, canReconcile } from "@/lib/ticket-core";
+import { formatBytes } from "@/lib/attachment-core";
+import { allowedTransitions, canProposeChangeRequest, canReconcile, describeTicketType } from "@/lib/ticket-core";
 import { StatusPill } from "@/components/support/ticket-ui";
 import TicketActions from "./TicketActions";
 import DuplicateSuggestions from "./DuplicateSuggestions";
@@ -29,6 +31,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
   const ticket = await getTicketForViewer(ticketId, session.userUid, session.username);
   if (!ticket) notFound();
 
+  const attachments = await listAttachments(ticket.id);
   const isStaff = await canLogForOthers(session.userUid);
   const isAbsorbed = ticket.mergedIntoTicketId !== null;
   const needsReconciling = isStaff && canReconcile(ticket);
@@ -126,6 +129,26 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
             />
           )}
 
+          {attachments.length > 0 && (
+            <Card title={`Attachments (${attachments.length})`}>
+              <ul className="space-y-2 text-sm">
+                {attachments.map((f) => (
+                  <li key={f.id} className="flex flex-wrap items-baseline justify-between gap-2">
+                    <a
+                      href={`/api/tickets/${ticket.id}/attachments/${f.id}`}
+                      className="text-link hover:underline"
+                    >
+                      {f.fileName}
+                    </a>
+                    <span className="text-xs text-foreground/50">
+                      {formatBytes(f.byteSize)} · {f.uploadedBy} · {formatDateTime(f.uploadedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           <Card title="History">
             {/* The audit trail (§5). Append-only, so this is the whole life of the ticket. */}
             <ol className="space-y-3">
@@ -136,7 +159,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
                       {e.eventType.replace(/_/g, " ").toLowerCase()}
                     </span>
                     <span className="text-xs text-foreground/50">
-                      {formatDateTime(e.createdAt)} · {e.actorUsername}
+                      {formatDateTimeSeconds(e.createdAt)} · {e.actorUsername}
                     </span>
                   </div>
                   {(e.fromStatus || e.toStatus) && (
@@ -211,8 +234,9 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
               {ticket.guestMobile && <Row label="Mobile" value={ticket.guestMobile} />}
               {ticket.clientCode && <Row label="Client code" value={ticket.clientCode} />}
               <Row label="Channel" value={ticket.channel} />
-              <Row label="Category" value={ticket.category.categoryName} />
-              <Row label="Module" value={ticket.category.productModule} />
+              <Row label="Type" value={describeTicketType(ticket.ticketType, ticket.typeOther)} />
+              <Row label="Application" value={ticket.application.name} />
+              <Row label="Segment" value={ticket.segment.name} />
               <Row label="Assigned to" value={ticket.assignedTo?.fullName ?? "Unassigned"} />
               <Row label="Logged by" value={ticket.createdBy} />
             </dl>
@@ -220,10 +244,10 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
 
           <Card title="Timing">
             <dl className="space-y-2 text-sm">
-              <Row label="Raised" value={formatDateTime(ticket.raisedAt)} />
+              <Row label="Raised" value={formatDateTimeSeconds(ticket.raisedAt)} />
               {/* Differs from Raised only after a merge, when it moves to the earlier of the
                   two tickets — which is precisely when it is worth seeing. */}
-              <Row label="Clock started" value={formatDateTime(ticket.slaClockStartAt)} />
+              <Row label="Clock started" value={formatDateTimeSeconds(ticket.slaClockStartAt)} />
               <Row label="First response" value={ticket.firstResponseAt ? formatDateTime(ticket.firstResponseAt) : "—"} />
               <Row label="Revised ETA" value={ticket.revisedEta ? formatDateTime(ticket.revisedEta) : "—"} />
               <Row label="Resolved" value={ticket.resolvedAt ? formatDateTime(ticket.resolvedAt) : "—"} />

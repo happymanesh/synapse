@@ -1,9 +1,14 @@
 /**
  * Column formatting/sorting rule (see CLAUDE.md "Date/number column formatting"):
- * dates render dd-Mmm-yyyy, datetimes render dd-Mmm-yyyy hh:mm, and sorting on
- * either always compares the underlying Date value — never the formatted text.
+ * dates render dd-Mmm-yy, datetimes render dd-Mmm-yy hh:mm, and sorting on either
+ * always compares the underlying Date value — never the formatted text.
  * Every report table in this app must go through these helpers rather than
  * reinventing date formatting/sorting per report.
+ *
+ * Seconds are deliberately NOT part of the default datetime. They are noise on a
+ * business date, and only earn their place where events can land inside the same
+ * minute and their ORDER matters — an audit trail, or the timestamps behind a merge.
+ * Use formatDateTimeSeconds() there, and only there.
  */
 
 export type ColumnDataType = "TEXT" | "NUMBER" | "DATE" | "DATETIME";
@@ -26,13 +31,22 @@ export function toDate(value: unknown): Date | null {
 export function formatDate(value: unknown): string {
   const d = toDate(value);
   if (!d) return "—";
-  return `${pad2(d.getDate())}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
+  // Two-digit year: these are business dates read in bulk down a column, where the
+  // century is never in question and the extra glyphs only cost width.
+  return `${pad2(d.getDate())}-${MONTHS[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`;
 }
 
 export function formatDateTime(value: unknown): string {
   const d = toDate(value);
   if (!d) return "—";
   return `${formatDate(value)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** dd-Mmm-yy hh:mm:ss — for timestamps whose ordering within a minute matters. */
+export function formatDateTimeSeconds(value: unknown): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return `${formatDateTime(value)}:${pad2(d.getSeconds())}`;
 }
 
 export function formatNumber(value: unknown, decimalPlaces?: number | null): string {

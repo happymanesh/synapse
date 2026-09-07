@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ipMatchesPattern, isIpAllowed, getClientIp } from "../src/lib/ip-match";
 import { checkPasswordPolicy, isPasswordReused } from "../src/lib/password-policy";
 import bcrypt from "bcryptjs";
+import { formatDate, formatDateTime, formatDateTimeSeconds } from "../src/lib/report-format";
 
 describe("ipMatchesPattern", () => {
   test("exact match", () => {
@@ -113,5 +114,32 @@ describe("isPasswordReused", () => {
 
   test("empty history means nothing is reused", async () => {
     assert.equal(await isPasswordReused("Anything@1", []), false);
+  });
+});
+
+describe("date formatting", () => {
+  const d = new Date(2026, 8, 7, 14, 5, 9); // 07-Sep-26 14:05:09 local
+
+  test("dates render dd-Mmm-yy", () => {
+    assert.equal(formatDate(d), "07-Sep-26");
+  });
+
+  test("datetimes stop at minutes by default — seconds are noise on a business date", () => {
+    assert.equal(formatDateTime(d), "07-Sep-26 14:05");
+  });
+
+  test("the seconds variant is available where ordering within a minute matters", () => {
+    assert.equal(formatDateTimeSeconds(d), "07-Sep-26 14:05:09");
+  });
+
+  test("single-digit parts are zero-padded so columns line up", () => {
+    assert.equal(formatDateTimeSeconds(new Date(2026, 0, 3, 9, 4, 5)), "03-Jan-26 09:04:05");
+  });
+
+  test("a missing value renders an em dash, never 'Invalid Date'", () => {
+    for (const v of [null, undefined, "", "not-a-date"]) {
+      assert.equal(formatDateTime(v), "—", String(v));
+      assert.equal(formatDateTimeSeconds(v), "—", String(v));
+    }
   });
 });

@@ -29,7 +29,12 @@ export async function POST(request: NextRequest) {
 
     const result = await createTicket({
       channel: body.forSomeoneElse ? body.channel : "SYNAPSE",
-      categoryCode: body.categoryCode,
+      ticketType: body.ticketType,
+      typeOther: body.typeOther,
+      applicationId: body.applicationId,
+      applicationNew: body.applicationNew,
+      segmentId: body.segmentId,
+      segmentNew: body.segmentNew,
       subject: body.subject,
       description: body.description,
       companyCode: session.companyCode,
@@ -48,6 +53,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
+    if (err instanceof Error && !("issues" in err) && !("code" in err)) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     return adminErrorResponse(err);
   }
 }

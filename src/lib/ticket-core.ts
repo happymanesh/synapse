@@ -139,6 +139,41 @@ export function canReconcile(ticket: ReconcilableTicket): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Classification: type / application / segment
+// ---------------------------------------------------------------------------
+
+/**
+ * The type axis. Fixed rather than master data, because it is a reporting dimension: left
+ * open it degrades into near-duplicates ("Bug"/"bug"/"Bugs") that split a report silently.
+ * Application and segment ARE master data — they genuinely grow.
+ */
+export const TICKET_TYPES = ["ISSUE", "COMPLAINT", "BUG", "REQUEST", "CLARIFICATION", "OTHERS"] as const;
+export type TicketType = (typeof TICKET_TYPES)[number];
+
+export const TICKET_TYPE_LABELS: Record<TicketType, string> = {
+  ISSUE: "Issue",
+  COMPLAINT: "Complaint",
+  BUG: "Bug",
+  REQUEST: "Request",
+  CLARIFICATION: "Clarification",
+  OTHERS: "Others",
+};
+
+/** OTHERS is only meaningful with the "please mention" text beside it — an unqualified
+ * "Others" tells a report nothing and tells the desk even less. */
+export function requiresTypeOther(ticketType: string): boolean {
+  return ticketType === "OTHERS";
+}
+
+/** What to show for a ticket's type: the mentioned text for OTHERS, else the label. */
+export function describeTicketType(ticketType: string, typeOther: string | null): string {
+  if (requiresTypeOther(ticketType)) {
+    return typeOther?.trim() ? `Others — ${typeOther.trim()}` : "Others";
+  }
+  return TICKET_TYPE_LABELS[ticketType as TicketType] ?? ticketType;
+}
+
+// ---------------------------------------------------------------------------
 // Duplicate detection (BRS §4.4)
 // ---------------------------------------------------------------------------
 
@@ -151,7 +186,8 @@ export const DUPLICATE_WINDOW_HOURS = 48;
 
 export interface TicketLike {
   id: number;
-  categoryCode: string;
+  applicationId: number;
+  ticketType: string;
   status: string;
   raisedAt: Date;
   raiserUid: number | null;
@@ -189,9 +225,13 @@ export function isSameEntity(a: TicketLike, b: TicketLike): boolean {
 }
 
 /**
- * Deterministic duplicate test: same category, same entity, both still open, raised within
- * the window. No text similarity — §4.4 is explicit that Phase 1 matches on structured
- * fields only, so the result is explainable to the staff member confirming it.
+ * Deterministic duplicate test: same application AND type, same entity, both still open,
+ * raised within the window. No text similarity — §4.4 is explicit that Phase 1 matches on
+ * structured fields only, so the result is explainable to the staff member confirming it.
+ *
+ * Both classification axes must agree. Matching on application alone would offer a bug and
+ * a billing query about the same system as duplicates of each other; type alone is far too
+ * broad to mean anything.
  */
 export function isLikelyDuplicate(a: TicketLike, b: TicketLike, windowHours = DUPLICATE_WINDOW_HOURS): boolean {
   if (a.id === b.id) return false;
@@ -199,7 +239,8 @@ export function isLikelyDuplicate(a: TicketLike, b: TicketLike, windowHours = DU
   // again — merging into it would strand history behind two hops.
   if (a.mergedIntoTicketId !== null || b.mergedIntoTicketId !== null) return false;
   if (!isOpenStatus(a.status) || !isOpenStatus(b.status)) return false;
-  if (a.categoryCode !== b.categoryCode) return false;
+  if (a.applicationId !== b.applicationId) return false;
+  if (a.ticketType !== b.ticketType) return false;
   if (!isSameEntity(a, b)) return false;
 
   const deltaMs = Math.abs(a.raisedAt.getTime() - b.raisedAt.getTime());

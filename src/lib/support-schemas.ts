@@ -4,81 +4,13 @@ import { z } from "zod";
  * silently grant or deny access in one file while working in another. */
 export const SUPPORT_MENU = {
   QUEUE: "SUP_QUEUE",
-  CATEGORIES: "SUP_CATEGORIES",
+  APPLICATIONS: "SUP_APPLICATIONS",
+  SEGMENTS: "SUP_SEGMENTS",
   CHANGE_REQUESTS: "SUP_CR",
   DOCUMENTS: "SUP_DOCS",
 } as const;
 
-/**
- * The issue-type axis of the taxonomy (BRS §4.3). Fixed rather than free text: it is a
- * reporting dimension in §4.8 and the Phase 2 dashboard, and free text degrades into
- * near-duplicates ("Bug" / "bug" / "Bugs") that split a report silently.
- */
-export const ISSUE_TYPES = ["QUERY", "COMPLAINT", "BUG", "SERVICE_REQUEST"] as const;
-
-/**
- * Chosen in the Product/Module dropdown to mean "none of these — let me type a new one".
- *
- * The other axis genuinely does grow (§4.3 has the support lead adding categories as new
- * patterns emerge), so a fixed list would need a code change to add a module. A dropdown of
- * existing values plus this escape hatch keeps the common case typo-proof without closing
- * the list.
- */
-export const NEW_MODULE_SENTINEL = "__NEW__";
-
 const optionalString = z.preprocess((v) => (v === "" || v === undefined ? null : v), z.string().nullable());
-
-const categoryFields = {
-  categoryName: z.string().trim().min(1, { error: "Give the category a name." }).max(120),
-  productModule: z.string().trim().min(1, { error: "Choose a product / module." }),
-  /** Only meaningful when productModule is the sentinel. */
-  productModuleNew: optionalString,
-  issueType: z.enum(ISSUE_TYPES, { error: "Choose an issue type." }),
-  description: optionalString,
-  displayOrder: z.coerce.number().int(),
-  isActive: z.boolean(),
-};
-
-/** Resolves the "new module" escape hatch down to the single column the DB actually has. */
-function withResolvedModule<T extends z.ZodObject<z.ZodRawShape>>(schema: T) {
-  return schema
-    .superRefine((v, ctx) => {
-      const val = v as { productModule: string; productModuleNew?: string | null };
-      if (val.productModule === NEW_MODULE_SENTINEL && !val.productModuleNew?.trim()) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Enter the new product / module name.",
-          path: ["productModuleNew"],
-        });
-      }
-    })
-    .transform((v) => {
-      const { productModuleNew, productModule, ...rest } = v as z.infer<T> & {
-        productModule: string;
-        productModuleNew?: string | null;
-      };
-      return {
-        ...rest,
-        productModule: productModule === NEW_MODULE_SENTINEL ? productModuleNew!.trim() : productModule,
-      };
-    });
-}
-
-export const issueCategorySchema = withResolvedModule(
-  z.object({
-    // Upper-case code so it reads as an identifier in reports; also stops "eq-bug" and
-    // "EQ-BUG" becoming two categories.
-    categoryCode: z
-      .string()
-      .trim()
-      .min(1, { error: "Give the category a code." })
-      .max(40)
-      .regex(/^[A-Z0-9_-]+$/, { error: "Use capitals, digits, hyphen or underscore only, e.g. EQ-BUG." }),
-    ...categoryFields,
-  })
-);
-
-export const issueCategoryUpdateSchema = withResolvedModule(z.object(categoryFields));
 
 /**
  * Staff actions on a ticket (BRS §4.5), as a discriminated union — every action is

@@ -1,14 +1,16 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { canLogForOthers, listActiveCategories } from "@/lib/tickets";
+import { canLogForOthers, listApplications, listSegments } from "@/lib/tickets";
+import { formatDateTimeSeconds } from "@/lib/report-format";
 import RaiseTicketForm from "./RaiseTicketForm";
 
 export default async function RaiseTicketPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [categories, logForOthers] = await Promise.all([
-    listActiveCategories(),
+  const [applications, segments, logForOthers] = await Promise.all([
+    listApplications(),
+    listSegments(),
     canLogForOthers(session.userUid),
   ]);
 
@@ -18,7 +20,14 @@ export default async function RaiseTicketPage() {
       <p className="mb-5 text-sm text-foreground/60">
         Tell us what&apos;s wrong and we&apos;ll track it through to resolution.
       </p>
-      <RaiseTicketForm categories={categories} canLogForOthers={logForOthers} />
+      <RaiseTicketForm
+        applications={applications}
+        segments={segments}
+        canLogForOthers={logForOthers}
+        // Formatted server-side so the time shown is the server's, which is the clock the
+        // ticket will actually be stamped with — a browser clock can be minutes out.
+        raisedAtLabel={formatDateTimeSeconds(new Date())}
+      />
     </div>
   );
 }

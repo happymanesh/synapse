@@ -908,7 +908,8 @@ async function main() {
     { code: "SUP_DOCS", parent: "SUPPORT_ROOT", name: "Document Requests", icon: "📄", route: "/support/documents", level: 2, order: 50 },
     // Lives in the Support app, not /admin: §4.3 makes the support lead the owner, and an
     // /admin route would put it behind requireAdmin() and out of their reach.
-    { code: "SUP_CATEGORIES", parent: "SUPPORT_ROOT", name: "Issue Categories", icon: "🏷️", route: "/support/categories", level: 2, order: 60 },
+    { code: "SUP_APPLICATIONS", parent: "SUPPORT_ROOT", name: "Applications", icon: "🗂️", route: "/support/applications", level: 2, order: 60 },
+    { code: "SUP_SEGMENTS", parent: "SUPPORT_ROOT", name: "Segments", icon: "🏷️", route: "/support/segments", level: 2, order: 65 },
   ];
 
   for (const m of SUPPORT_MENUS) {
@@ -940,6 +941,11 @@ async function main() {
       },
     });
   }
+
+  // The single combined category has been split into type/application/segment, so the old
+  // Issue Categories screen no longer classifies anything. Deactivated rather than deleted:
+  // the menu row and its role grants stay intact in case the split is ever revisited.
+  await prisma.menuMaster.updateMany({ where: { menuCode: "SUP_CATEGORIES" }, data: { isActive: false } });
 
   const SUPPORT_MENU_GRANTS: Record<string, string[]> = {
     SUPPORT_DESK: ["SUPPORT_ROOT", "SUP_RAISE", "SUP_MY", "SUP_QUEUE", "SUP_CR", "SUP_DOCS"],
@@ -1056,6 +1062,45 @@ async function main() {
     });
   }
 
+  // The two extensible classification axes. Provisional like the taxonomy was: the desk
+  // adds to these from the raise screen as real patterns appear.
+  const APPLICATIONS = [
+    ["TRADING-TERMINAL", "Trading Terminal", 10],
+    ["MOBILE-APP", "Mobile App", 20],
+    ["WEBSITE", "Website", 30],
+    ["BACK-OFFICE", "Back Office", 40],
+    ["RMS", "RMS", 50],
+    ["PAYMENTS", "Payments & Funds", 60],
+    ["KYC-ONBOARDING", "KYC & Onboarding", 70],
+    ["SYNAPSE", "Synapse", 80],
+  ] as const;
+  for (const [code, name, order] of APPLICATIONS) {
+    await prisma.applicationMaster.upsert({
+      where: { code },
+      update: { name, displayOrder: order },
+      create: { code, name, displayOrder: order, isActive: true },
+    });
+  }
+
+  const SEGMENTS = [
+    ["EQ-CASH", "Equity Cash", 10],
+    ["EQ-FNO", "Equity Derivatives (F&O)", 20],
+    ["CURRENCY", "Currency Derivatives", 30],
+    ["COMMODITY", "Commodity", 40],
+    ["MUTUAL-FUND", "Mutual Funds", 50],
+    ["IPO", "IPO", 60],
+    // Explicit, so the field can stay mandatory without forcing a misleading answer on an
+    // issue that simply is not segment-specific.
+    ["NA", "Not Applicable", 900],
+  ] as const;
+  for (const [code, name, order] of SEGMENTS) {
+    await prisma.segmentMaster.upsert({
+      where: { code },
+      update: { name, displayOrder: order },
+      create: { code, name, displayOrder: order, isActive: true },
+    });
+  }
+
   // Provisional taxonomy (§4.3). BRS §11 item 2 leaves the final list to the support lead,
   // who revises it in-app — these are a workable starting set, not a fixed catalogue.
   const ISSUE_CATEGORIES: { code: string; name: string; module: string; type: string; order: number }[] = [
@@ -1116,13 +1161,13 @@ async function main() {
         dataSourceType: "NONE",
       },
       {
-        componentCode: "SUPPORT_PRODUCT_MODULE",
-        componentName: "Product / Module",
+        componentCode: "SUPPORT_APPLICATION",
+        componentName: "Application",
         componentType: "DROPDOWN",
         dataSourceType: "SQL",
         dataSourceQuery:
-          "SELECT DISTINCT product_module AS value, product_module AS label FROM issue_category " +
-          "WHERE is_active = true ORDER BY product_module",
+          "SELECT name AS value, name AS label FROM application_master " +
+          "WHERE is_active = true ORDER BY display_order, name",
       },
     ],
     skipDuplicates: true,
@@ -1154,7 +1199,7 @@ async function main() {
       });
       if (filterId === "SUPPORT_TICKETS_FILTER") {
         await prisma.filterDefinitionItem.create({
-          data: { filterId, componentCode: "SUPPORT_PRODUCT_MODULE", rowNo: 1, positionNo: 2 },
+          data: { filterId, componentCode: "SUPPORT_APPLICATION", rowNo: 1, positionNo: 2 },
         });
       }
     }
@@ -1225,16 +1270,17 @@ async function main() {
     filterId: "SUPPORT_TICKETS_FILTER",
     mode: "REPORT",
     queryText:
-      "SELECT t.ticket_no, t.subject, c.product_module, c.category_name, t.status, t.channel, " +
+      "SELECT t.ticket_no, t.subject, a.name AS application, sg.name AS segment, t.ticket_type, t.status, t.channel, " +
       "t.raised_at, t.resolved_at, " +
       "ROUND((EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, NOW()) - t.sla_clock_start_at)) / 3600.0)::numeric, 2) AS turnaround_hours, " +
       "COALESCE(u.full_name, t.guest_name, 'Guest') AS raised_by " +
-      "FROM ticket t JOIN issue_category c ON c.category_code = t.category_code " +
+      "FROM ticket t JOIN application_master a ON a.id = t.application_id " +
+      "JOIN segment_master sg ON sg.id = t.segment_id " +
       "LEFT JOIN user_details u ON u.uid = t.raiser_uid " +
       "WHERE t.merged_into_ticket_id IS NULL AND t.company_code = :SESSION_COMPANY " +
       "AND (:SUPPORT_DATE_RANGE_FROM::date IS NULL OR t.raised_at::date >= :SUPPORT_DATE_RANGE_FROM) " +
       "AND (:SUPPORT_DATE_RANGE_TO::date IS NULL OR t.raised_at::date <= :SUPPORT_DATE_RANGE_TO) " +
-      "AND (:SUPPORT_PRODUCT_MODULE::text IS NULL OR c.product_module = :SUPPORT_PRODUCT_MODULE) " +
+      "AND (:SUPPORT_APPLICATION::text IS NULL OR a.name = :SUPPORT_APPLICATION) " +
       "ORDER BY t.raised_at DESC",
     maxRows: 2000,
     freezeColumns: 0,
@@ -1254,8 +1300,9 @@ async function main() {
     data: [
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "ticket_no", displayLabel: "Ticket", displayOrder: 1, dataType: "TEXT" },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "subject", displayLabel: "Subject", displayOrder: 2, dataType: "TEXT" },
-      { reportId: "SUPPORT_TICKET_LIST", columnKey: "product_module", displayLabel: "Module", displayOrder: 3, dataType: "TEXT" },
-      { reportId: "SUPPORT_TICKET_LIST", columnKey: "category_name", displayLabel: "Category", displayOrder: 4, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "application", displayLabel: "Application", displayOrder: 3, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "segment", displayLabel: "Segment", displayOrder: 4, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "ticket_type", displayLabel: "Type", displayOrder: 5, dataType: "TEXT" },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "raised_by", displayLabel: "Raised By", displayOrder: 5, dataType: "TEXT" },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "status", displayLabel: "Status", displayOrder: 6, dataType: "TEXT" },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "channel", displayLabel: "Channel", displayOrder: 7, dataType: "TEXT" },
@@ -1273,15 +1320,16 @@ async function main() {
   });
 
   const categoryStatsData = {
-    reportTitle: "Tickets by Category",
+    reportTitle: "Tickets by Application",
     filterId: "SUPPORT_CATEGORY_FILTER",
     mode: "REPORT",
     queryText:
-      "SELECT c.product_module, c.issue_type, c.category_name, COUNT(*)::int AS tickets_raised, " +
+      "SELECT a.name AS application, sg.name AS segment, t.ticket_type, COUNT(*)::int AS tickets_raised, " +
       "COUNT(*) FILTER (WHERE t.status IN ('OPEN','IN_PROGRESS','FORWARDED','AWAITING_CR_APPROVAL'))::int AS still_open, " +
       "COUNT(*) FILTER (WHERE t.resolved_at IS NOT NULL)::int AS resolved, " +
       "ROUND((AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.sla_clock_start_at))) FILTER (WHERE t.resolved_at IS NOT NULL) / 3600.0)::numeric, 2) AS avg_turnaround_hours " +
-      "FROM ticket t JOIN issue_category c ON c.category_code = t.category_code " +
+      "FROM ticket t JOIN application_master a ON a.id = t.application_id " +
+      "JOIN segment_master sg ON sg.id = t.segment_id " +
       "WHERE t.merged_into_ticket_id IS NULL AND t.company_code = :SESSION_COMPANY " +
       "AND (:SUPPORT_DATE_RANGE_FROM::date IS NULL OR t.raised_at::date >= :SUPPORT_DATE_RANGE_FROM) " +
       "AND (:SUPPORT_DATE_RANGE_TO::date IS NULL OR t.raised_at::date <= :SUPPORT_DATE_RANGE_TO) " +
@@ -1304,18 +1352,18 @@ async function main() {
     data: [
       {
         reportId: "SUPPORT_CATEGORY_STATS",
-        columnKey: "product_module",
-        displayLabel: "Product / Module",
+        columnKey: "application",
+        displayLabel: "Application",
         displayOrder: 1,
         dataType: "TEXT",
         // Phase 2's dashboard wants "which topics drive the volume"; this is that, one
         // click deep, without any new UI.
         drillDownReportId: "SUPPORT_TICKET_LIST",
-        drillDownTargetParam: "SUPPORT_PRODUCT_MODULE",
+        drillDownTargetParam: "SUPPORT_APPLICATION",
         drillDownMode: "PAGE",
       },
-      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "issue_type", displayLabel: "Issue Type", displayOrder: 2, dataType: "TEXT" },
-      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "category_name", displayLabel: "Category", displayOrder: 3, dataType: "TEXT" },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "segment", displayLabel: "Segment", displayOrder: 2, dataType: "TEXT" },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "ticket_type", displayLabel: "Type", displayOrder: 3, dataType: "TEXT" },
       { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "tickets_raised", displayLabel: "Raised", displayOrder: 4, dataType: "NUMBER", showTotal: true },
       { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "still_open", displayLabel: "Still Open", displayOrder: 5, dataType: "NUMBER", showTotal: true, isHighlighted: true },
       { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "resolved", displayLabel: "Resolved", displayOrder: 6, dataType: "NUMBER", showTotal: true },
@@ -1332,7 +1380,7 @@ async function main() {
 
   const REPORT_MENUS = [
     { code: "SUP_RPT_DAILY", name: "Daily Ticket Stats", reportId: "SUPPORT_DAILY_STATS", order: 70 },
-    { code: "SUP_RPT_CATEGORY", name: "Tickets by Category", reportId: "SUPPORT_CATEGORY_STATS", order: 80 },
+    { code: "SUP_RPT_CATEGORY", name: "Tickets by Application", reportId: "SUPPORT_CATEGORY_STATS", order: 80 },
   ];
   for (const m of REPORT_MENUS) {
     await prisma.menuMaster.upsert({

@@ -14,6 +14,9 @@ import {
   averageTurnaroundMs,
   hasBreachedResponseTarget,
   canReconcile,
+  requiresTypeOther,
+  describeTicketType,
+  TICKET_TYPES,
   canProposeChangeRequest,
   canDecideChangeRequest,
   ticketStatusAfterDecision,
@@ -44,7 +47,8 @@ function at(hoursFromBase: number): Date {
 }
 function ticket(over: Partial<TicketLike> & { id: number }): TicketLike {
   return {
-    categoryCode: "EQ-BUG",
+    applicationId: 1,
+    ticketType: "BUG",
     status: "OPEN",
     raisedAt: BASE,
     raiserUid: null,
@@ -200,6 +204,54 @@ describe("resolveRaiser", () => {
   });
 });
 
+describe("ticket type", () => {
+  test("the six types are fixed, so a report dimension cannot drift", () => {
+    assert.deepEqual([...TICKET_TYPES], ["ISSUE", "COMPLAINT", "BUG", "REQUEST", "CLARIFICATION", "OTHERS"]);
+  });
+
+  test("only OTHERS needs the mention text", () => {
+    assert.equal(requiresTypeOther("OTHERS"), true);
+    for (const t of ["ISSUE", "COMPLAINT", "BUG", "REQUEST", "CLARIFICATION"]) {
+      assert.equal(requiresTypeOther(t), false, t);
+    }
+  });
+
+  test("a known type renders as its label", () => {
+    assert.equal(describeTicketType("CLARIFICATION", null), "Clarification");
+    assert.equal(describeTicketType("BUG", "ignored"), "Bug");
+  });
+
+  test("OTHERS renders the mentioned text, which is the only thing that makes it useful", () => {
+    assert.equal(describeTicketType("OTHERS", "Data correction"), "Others — Data correction");
+  });
+
+  test("OTHERS with no mention still renders rather than showing a blank", () => {
+    assert.equal(describeTicketType("OTHERS", null), "Others");
+    assert.equal(describeTicketType("OTHERS", "   "), "Others");
+  });
+
+  test("an unknown type falls back to itself rather than undefined", () => {
+    assert.equal(describeTicketType("LEGACY_THING", null), "LEGACY_THING");
+  });
+});
+
+describe("duplicate matching uses BOTH classification axes", () => {
+  const a = ticket({ id: 1, raiserUid: 7, applicationId: 3, ticketType: "BUG" });
+
+  test("same application but a different type is not a duplicate", () => {
+    // A bug and a billing query about the same system are not the same issue.
+    assert.equal(isLikelyDuplicate(a, ticket({ id: 2, raiserUid: 7, applicationId: 3, ticketType: "COMPLAINT" })), false);
+  });
+
+  test("same type but a different application is not a duplicate", () => {
+    assert.equal(isLikelyDuplicate(a, ticket({ id: 2, raiserUid: 7, applicationId: 4, ticketType: "BUG" })), false);
+  });
+
+  test("both axes matching, same entity, in window, is a duplicate", () => {
+    assert.equal(isLikelyDuplicate(a, ticket({ id: 2, raiserUid: 7, applicationId: 3, ticketType: "BUG" })), true);
+  });
+});
+
 describe("canReconcile", () => {
   test("a guest ticket can be linked to a master record", () => {
     assert.equal(canReconcile({ raiserUid: null, mergedIntoTicketId: null }), true);
@@ -270,8 +322,8 @@ describe("isLikelyDuplicate", () => {
     assert.equal(isLikelyDuplicate(a, b), true);
   });
 
-  test("a different category is never a duplicate", () => {
-    const b = ticket({ id: 2, raiserUid: 7, categoryCode: "RMS-COMPLAINT", raisedAt: at(-5) });
+  test("a different application is never a duplicate", () => {
+    const b = ticket({ id: 2, raiserUid: 7, applicationId: 9, raisedAt: at(-5) });
     assert.equal(isLikelyDuplicate(a, b), false);
   });
 

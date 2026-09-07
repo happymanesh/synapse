@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireMenu } from "@/lib/auth";
 import { listTriageQueue } from "@/lib/tickets";
 import { SUPPORT_MENU } from "@/lib/support-schemas";
-import { hasBreachedResponseTarget, RESPONSE_TARGET_HOURS } from "@/lib/ticket-core";
+import { hasBreachedResponseTarget, RESPONSE_TARGET_HOURS, describeTicketType } from "@/lib/ticket-core";
 import { StatusPill, AgeCell } from "@/components/support/ticket-ui";
 
 export default async function TriageQueuePage({
@@ -54,7 +54,8 @@ export default async function TriageQueuePage({
                 <th className="px-4 py-3 font-semibold">Ticket</th>
                 <th className="px-4 py-3 font-semibold">Subject</th>
                 <th className="px-4 py-3 font-semibold">Raised by</th>
-                <th className="px-4 py-3 font-semibold">Category</th>
+                <th className="px-4 py-3 font-semibold">Type</th>
+                <th className="px-4 py-3 font-semibold">Application</th>
                 <th className="px-4 py-3 font-semibold">Assigned</th>
                 <th className="px-4 py-3 text-center font-semibold">Waiting</th>
                 <th className="px-4 py-3 text-center font-semibold">Status</th>
@@ -77,7 +78,8 @@ export default async function TriageQueuePage({
                     <td className="px-4 py-3 text-foreground/80">
                       {t.raiser?.fullName ?? t.guestName ?? <span className="text-foreground/50">Guest</span>}
                     </td>
-                    <td className="px-4 py-3 text-foreground/80">{t.category.categoryName}</td>
+                    <td className="px-4 py-3 text-foreground/80">{describeTicketType(t.ticketType, t.typeOther)}</td>
+                    <td className="px-4 py-3 text-foreground/80">{t.application.name}</td>
                     <td className="px-4 py-3 text-foreground/80">
                       {t.assignedTo?.fullName ?? <span className="text-foreground/50">Unassigned</span>}
                     </td>

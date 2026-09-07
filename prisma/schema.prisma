@@ -530,11 +530,24 @@ model Ticket {
   onBehalfOfUid Int?    @map("on_behalf_of_uid")
   clientCode    String? @map("client_code")
 
-  channel      String // WEBSITE | WHATSAPP | PHONE | SYNAPSE
-  categoryCode String @map("category_code")
-  subject      String
-  description  String
-  companyCode  String @map("company_code")
+  channel String // WEBSITE | WHATSAPP | PHONE | SYNAPSE
+
+  /// Classification on three independent axes, replacing the single combined category.
+  /// Type is a fixed list (a reporting dimension shouldn't drift into near-duplicates);
+  /// application and segment are master data the desk extends as new ones appear.
+  ticketType    String  @map("ticket_type") // ISSUE | COMPLAINT | BUG | REQUEST | CLARIFICATION | OTHERS
+  /// Required when ticketType is OTHERS — the "please mention" free text.
+  typeOther     String? @map("type_other")
+  applicationId Int     @map("application_id")
+  segmentId     Int     @map("segment_id")
+
+  /// Superseded by the three axes above. Left nullable rather than dropped so the column
+  /// and any historical classification survive; nothing sets it on new tickets.
+  categoryCode String? @map("category_code")
+
+  subject     String
+  description String
+  companyCode String @map("company_code")
 
   status        String    @default("OPEN")
   // OPEN | IN_PROGRESS | FORWARDED | AWAITING_CR_APPROVAL | RESOLVED | CLOSED | MERGED
@@ -561,8 +574,10 @@ model Ticket {
   updatedBy String?  @map("updated_by")
   updatedOn DateTime @default(now()) @updatedAt @map("updated_on")
 
-  category   IssueCategory @relation(fields: [categoryCode], references: [categoryCode])
-  company    CompanyMaster @relation(fields: [companyCode], references: [companyCode])
+  category    IssueCategory?    @relation(fields: [categoryCode], references: [categoryCode])
+  application ApplicationMaster @relation(fields: [applicationId], references: [id])
+  segment     SegmentMaster     @relation(fields: [segmentId], references: [id])
+  company     CompanyMaster     @relation(fields: [companyCode], references: [companyCode])
   raiser     UserDetails?  @relation("TicketRaiser", fields: [raiserUid], references: [uid], onDelete: Restrict)
   onBehalfOf UserDetails?  @relation("TicketOnBehalf", fields: [onBehalfOfUid], references: [uid], onDelete: Restrict)
   assignedTo UserDetails?  @relation("TicketAssignee", fields: [assignedToUid], references: [uid], onDelete: Restrict)
@@ -570,6 +585,7 @@ model Ticket {
   mergedInto    Ticket?  @relation("TicketMerge", fields: [mergedIntoTicketId], references: [id], onDelete: Restrict)
   mergedTickets Ticket[] @relation("TicketMerge")
 
+  attachments   TicketAttachment[]
   events        TicketEvent[]    @relation("TicketEventTicket")
   relatedEvents TicketEvent[]    @relation("TicketEventRelated")
   changeRequest ChangeRequest?
@@ -582,7 +598,67 @@ model Ticket {
   @@index([raiserUid, status])
   /// Serves the §4.4 duplicate probe: same category + still open + inside a rolling window.
   @@index([categoryCode, status, raisedAt])
+  /// Serves the §4.4 duplicate probe on the new axes: same application + type + still open
+  /// + inside the rolling window.
+  @@index([applicationId, ticketType, status, raisedAt])
+  @@index([segmentId])
   @@map("ticket")
+}
+
+/// A file attached to a ticket. Bytes live here rather than on disk: BRS §5 requires no new
+/// datastore, and the app container is ephemeral. Caps are enforced in
+/// `src/lib/attachment-core.ts` and backed by a CHECK constraint on byteSize.
+///
+/// Never select `content` in a list query — Postgres keeps it out of the main heap, and
+/// asking for it drags every row's bytes back with the listing.
+model TicketAttachment {
+  id         Int      @id @default(autoincrement())
+  ticketId   Int      @map("ticket_id")
+  fileName   String   @map("file_name")
+  mimeType   String   @map("mime_type")
+  byteSize   Int      @map("byte_size")
+  content    Bytes
+  uploadedBy String   @map("uploaded_by")
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId])
+  @@map("ticket_attachment")
+}
+
+/// The application a ticket is about (Trading Terminal, Back Office, RMS …). Master data
+/// rather than a fixed list: §4.3 has the desk extending the taxonomy as patterns emerge,
+/// and the raise screen can add one inline when it is missing.
+model ApplicationMaster {
+  id           Int     @id @default(autoincrement())
+  code         String  @unique
+  name         String
+  displayOrder Int     @default(0) @map("display_order")
+  isActive     Boolean @default(true) @map("is_active")
+  createdBy    String? @map("created_by")
+
+  tickets Ticket[]
+
+  @@index([isActive, displayOrder])
+  @@map("application_master")
+}
+
+/// The market segment a ticket relates to (Equity Cash, F&O, Currency …), including an
+/// explicit "Not Applicable" for issues that aren't segment-specific — so the field can stay
+/// mandatory without forcing a misleading answer.
+model SegmentMaster {
+  id           Int     @id @default(autoincrement())
+  code         String  @unique
+  name         String
+  displayOrder Int     @default(0) @map("display_order")
+  isActive     Boolean @default(true) @map("is_active")
+  createdBy    String? @map("created_by")
+
+  tickets Ticket[]
+
+  @@index([isActive, displayOrder])
+  @@map("segment_master")
 }
 
 /// Append-only audit trail (§4.5): never updated, never deleted.
