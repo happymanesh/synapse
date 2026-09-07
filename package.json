@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "npm run db:deploy && next start",
+    "db:deploy": "prisma migrate deploy && prisma db seed",
     "lint": "eslint",
     "test": "tsx --test tests/**/*.test.ts",
     "postinstall": "prisma generate"
