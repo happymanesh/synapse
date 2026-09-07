@@ -2,9 +2,12 @@
 --
 -- Applied by hand, not through `prisma migrate dev` / `db push`. See CLAUDE.md.
 --
--- Safe to run because no tickets exist in any environment yet: the three new columns are
--- added nullable and then tightened to NOT NULL, which would fail on a populated table.
--- If this is ever run against a database holding tickets, backfill first.
+-- Existing tickets are backfilled from their retired category before the new columns are
+-- tightened, so this applies to a populated database as well as an empty one.
+--
+-- The baseline application/segment rows are inserted HERE rather than left to the seed:
+-- the seed runs after migrate deploy, so a backfill that depended on it would have nothing
+-- to point at.
 
 CREATE TABLE IF NOT EXISTS "application_master" (
     "id"            SERIAL  NOT NULL,
@@ -38,6 +41,29 @@ CREATE INDEX IF NOT EXISTS "segment_master_is_active_display_order_idx"
 -- classification remains readable, but it no longer has to be supplied.
 ALTER TABLE "ticket" ALTER COLUMN "category_code" DROP NOT NULL;
 
+-- Baseline reference data. ON CONFLICT DO NOTHING so this is a no-op where the seed has
+-- already created them; the seed upserts the same codes.
+INSERT INTO "application_master" ("code", "name", "display_order") VALUES
+  ('TRADING-TERMINAL', 'Trading Terminal', 10),
+  ('MOBILE-APP',       'Mobile App',       20),
+  ('WEBSITE',          'Website',          30),
+  ('BACK-OFFICE',      'Back Office',      40),
+  ('RMS',              'RMS',              50),
+  ('PAYMENTS',         'Payments & Funds', 60),
+  ('KYC-ONBOARDING',   'KYC & Onboarding', 70),
+  ('SYNAPSE',          'Synapse',          80)
+ON CONFLICT ("code") DO NOTHING;
+
+INSERT INTO "segment_master" ("code", "name", "display_order") VALUES
+  ('EQ-CASH',     'Equity Cash',              10),
+  ('EQ-FNO',      'Equity Derivatives (F&O)', 20),
+  ('CURRENCY',    'Currency Derivatives',     30),
+  ('COMMODITY',   'Commodity',                40),
+  ('MUTUAL-FUND', 'Mutual Funds',             50),
+  ('IPO',         'IPO',                      60),
+  ('NA',          'Not Applicable',          900)
+ON CONFLICT ("code") DO NOTHING;
+
 ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "ticket_type" TEXT;
 ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "type_other" TEXT;
 ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "application_id" INTEGER
@@ -45,12 +71,45 @@ ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "application_id" INTEGER
 ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "segment_id" INTEGER
     REFERENCES "segment_master" ("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- Tighten to NOT NULL. Plain statements rather than a DO block guarding on row counts:
--- SET NOT NULL already fails loudly if any row holds a null, which is exactly the
--- protection the guard was written for. The DO block also carried a real cost — its body
--- contains semicolons inside dollar quotes, which `prisma db execute` (used locally, and
--- which sends the file whole) tolerates but `prisma migrate deploy` does not parse the same
--- way. That difference is what made this migration pass locally and fail in production.
+-- Backfill existing tickets from the category they were filed under, so the classification
+-- they already carry survives the split rather than being flattened to a default.
+UPDATE "ticket" t SET "ticket_type" = COALESCE((
+  SELECT CASE c."issue_type"
+           WHEN 'BUG'             THEN 'BUG'
+           WHEN 'COMPLAINT'       THEN 'COMPLAINT'
+           WHEN 'SERVICE_REQUEST' THEN 'REQUEST'
+           WHEN 'QUERY'           THEN 'CLARIFICATION'
+           ELSE 'ISSUE'
+         END
+  FROM "issue_category" c WHERE c."category_code" = t."category_code"
+), 'ISSUE')
+WHERE t."ticket_type" IS NULL;
+
+-- The old product/module maps onto an application by name where one lines up; anything
+-- unrecognised falls to Synapse rather than blocking the migration.
+UPDATE "ticket" t SET "application_id" = COALESCE(
+  (SELECT a."id" FROM "issue_category" c JOIN "application_master" a ON a."name" = c."product_module"
+   WHERE c."category_code" = t."category_code"),
+  (SELECT "id" FROM "application_master" WHERE "code" = 'SYNAPSE'),
+  (SELECT "id" FROM "application_master" ORDER BY "display_order", "id" LIMIT 1))
+WHERE t."application_id" IS NULL;
+
+-- The old taxonomy had no segment axis, but two of its product modules were really
+-- segments wearing the wrong hat: "Equities" and "Derivatives" describe what was traded,
+-- not which system was used. Mapping those across preserves information that would
+-- otherwise be thrown away; everything else honestly gets "Not Applicable" rather than a
+-- guess that would read like real data.
+UPDATE "ticket" t SET "segment_id" = COALESCE(
+  (SELECT s."id" FROM "issue_category" c, "segment_master" s
+   WHERE c."category_code" = t."category_code"
+     AND ((c."product_module" = 'Equities'    AND s."code" = 'EQ-CASH')
+       OR (c."product_module" = 'Derivatives' AND s."code" = 'EQ-FNO'))),
+  (SELECT "id" FROM "segment_master" WHERE "code" = 'NA'),
+  (SELECT "id" FROM "segment_master" ORDER BY "display_order", "id" LIMIT 1))
+WHERE t."segment_id" IS NULL;
+
+-- Now safe to tighten. SET NOT NULL still fails loudly if the backfill missed anything,
+-- which is the protection that matters.
 ALTER TABLE "ticket" ALTER COLUMN "ticket_type"    SET NOT NULL;
 ALTER TABLE "ticket" ALTER COLUMN "application_id" SET NOT NULL;
 ALTER TABLE "ticket" ALTER COLUMN "segment_id"     SET NOT NULL;
