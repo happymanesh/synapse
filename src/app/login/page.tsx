@@ -7,6 +7,17 @@ export const metadata: Metadata = {
   title: "Login | SIHL Synapse",
 };
 
+/**
+ * Rendered per request, not prerendered at build.
+ *
+ * This page reads the company's name and logo from the database, and every other route is
+ * dynamic already because it touches cookies via getSession(). Left static, Next tries to
+ * reach the database during `next build` — which works locally against localhost but fails
+ * in any build environment that cannot see the database, such as a Railway or Vercel builder
+ * whose network access differs from the runtime's.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function LoginPage() {
   const company = await prisma.companyMaster.findUnique({
     where: { companyCode: "SIHL" },
