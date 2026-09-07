@@ -4,8 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "preDeployCommand": "npx prisma migrate deploy && npx prisma db seed",
-    "startCommand": "npm run start",
+    "startCommand": "npx prisma migrate deploy && npx prisma db seed && npm run start",
     "healthcheckPath": "/login",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
