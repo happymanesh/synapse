@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { decideProxyAction, SESSION_EXPIRED_BODY } from "@/lib/auth-core";
 
-const PUBLIC_ROUTES = ["/login"];
 const SESSION_COOKIE = "synapse_session";
 
 const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET);
@@ -17,20 +17,27 @@ async function hasValidSession(request: NextRequest): Promise<boolean> {
   }
 }
 
+/**
+ * Thin adapter: the decision itself lives in `@/lib/auth-core` so it can be unit tested
+ * without a NextRequest. This function only turns a decision into a response.
+ */
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
   const authenticated = await hasValidSession(request);
 
-  if (!isPublicRoute && !authenticated) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  switch (decideProxyAction(pathname, authenticated)) {
+    case "UNAUTHORIZED_JSON":
+      // An API caller gets JSON it can actually read. Redirecting here would hand a
+      // `fetch()` an HTML login page, which then fails at res.json() and surfaces as a
+      // generic network error instead of an expired session.
+      return NextResponse.json(SESSION_EXPIRED_BODY, { status: 401 });
+    case "REDIRECT_TO_LOGIN":
+      return NextResponse.redirect(new URL("/login", request.url));
+    case "REDIRECT_TO_DASHBOARD":
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    case "ALLOW":
+      return NextResponse.next();
   }
-
-  if (pathname === "/login" && authenticated) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  return NextResponse.next();
 }
 
 export const config = {

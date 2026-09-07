@@ -19,6 +19,10 @@
 
   --brand-navy: #0a5281;
   --brand-teal: #1d8f6a;
+  /* Link text. A separate token because --brand-navy is a DARK navy: correct on the light
+     themes, but only 1.6:1 against night chrome, which is effectively invisible. Flipped
+     per theme exactly as the status colours are. */
+  --link: #0a5281;
   --brand-green: #66bb46;
   --brand-dark: #2b3a4a;
   --brand-muted: #5c6e80;
@@ -47,6 +51,7 @@
   --color-chrome-border: var(--chrome-border);
   --color-chrome-surface: var(--chrome-surface);
   --color-brand-navy: var(--brand-navy);
+  --color-link: var(--link);
   --color-brand-teal: var(--brand-teal);
   --color-brand-green: var(--brand-green);
   --color-brand-dark: var(--brand-dark);
@@ -80,6 +85,7 @@
     --warning-surface: #35290f;
     --warning-border: #6b5320;
     --overlay: rgb(3 12 22 / 0.65);
+    --link: #6aa9e0;
     --chart-1: #6aa9e0;
     --chart-2: #e8b45c;
   }
@@ -104,6 +110,7 @@
   --warning-surface: #fdf5e4;
   --warning-border: #e6c98a;
   --overlay: rgb(15 34 51 / 0.45);
+  --link: #0a5281;
   --chart-1: #1c5fa0;
   --chart-2: #c98a1f;
 }
@@ -126,6 +133,7 @@
   --warning-surface: #35290f;
   --warning-border: #6b5320;
   --overlay: rgb(3 12 22 / 0.65);
+  --link: #6aa9e0;
   --chart-1: #6aa9e0;
   --chart-2: #e8b45c;
 }
@@ -150,6 +158,7 @@
   --warning-surface: #fdf5e4;
   --warning-border: #e6c98a;
   --overlay: rgb(15 34 51 / 0.45);
+  --link: #0a5281;
   --chart-1: #1c5fa0;
   --chart-2: #c98a1f;
 }

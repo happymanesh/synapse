@@ -31,11 +31,11 @@ async function main() {
   // user_details row didn't include one, confirm/replace with the real code.
   await prisma.companyMaster.upsert({
     where: { companyCode: "SIHL" },
-    update: { companyLogoFileLocation: "/logos/sihl-logo.png" },
+    update: { companyLogoFileLocation: "/logos/sihllogo.jpg" },
     create: {
       companyCode: "SIHL",
       companyName: "Shah Investor's Home Limited",
-      companyLogoFileLocation: "/logos/sihl-logo.png",
+      companyLogoFileLocation: "/logos/sihllogo.jpg",
       isActive: true,
     },
   });
@@ -107,17 +107,22 @@ async function main() {
 
   const adminPasswordHash = await bcrypt.hash(SEED_PASSWORD, 10);
 
+  // Distinct contact details from Manesh001 on purpose. When both accounts shared an email
+  // and mobile, identity resolution (§4.2) could never match either of them — the ambiguity
+  // guard correctly refused to guess between two records, so every ticket raised with that
+  // address became a guest ticket. A system account should carry its own contact anyway.
+  // These are in `update` as well as `create` so existing databases converge on re-seed.
   const adminUser = await prisma.userDetails.upsert({
     where: { username: "Admin001" },
-    update: {},
+    update: { email: "admin@sihl.local", mobile: "9800000001" },
     create: {
       companyCode: "SIHL",
       username: "Admin001",
       passwordHash: adminPasswordHash,
       customerId: "Admin001",
       fullName: "Manesh Anand Mukherjee",
-      mobile: "9892953949",
-      email: "happymanesh@gmail.com",
+      mobile: "9800000001",
+      email: "admin@sihl.local",
       lastPasswordChangedDate: new Date("1900-01-01"),
       createdDate: new Date("2026-07-25"),
       hierarchyCode: "9999",
@@ -813,6 +818,539 @@ async function main() {
       update: { isActive: true },
       create: { roleCode: "ADMIN", menuCode, companyCode: "SIHL", hierarchyCode: "9999", isActive: true },
     });
+  }
+
+  // --- Issue Tracker & Service Request System, Phase 1 (docs/04-issue-tracker-brs.md) ---
+  //
+  // A dedicated "Support" app rather than menus inside Broking: BRS §4.1 treats Synapse
+  // itself as an intake channel, and since app access is derived from menu grants, giving
+  // the support roles their menus grants them the app automatically.
+
+  await prisma.appMaster.upsert({
+    where: { appCode: "SUPPORT" },
+    update: {
+      appName: "Support",
+      icon: "🎧",
+      displayOrder: 3,
+      description: "Issue tracking, service requests and change requests.",
+      isActive: true,
+    },
+    create: {
+      appCode: "SUPPORT",
+      appName: "Support",
+      companyCode: "SIHL",
+      icon: "🎧",
+      displayOrder: 3,
+      description: "Issue tracking, service requests and change requests.",
+      isActive: true,
+    },
+  });
+
+  // Three roles, because the BRS names three distinct authorities: the desk triages and
+  // resolves (§4.5), the lead additionally owns the taxonomy (§4.3), and Product/Ops alone
+  // approves change-request conversion (§4.6).
+  //
+  // NOTE: a menu grant only controls *visibility*. §4.6's approval authority must also be
+  // enforced server-side in the route handler — hiding a menu is not an access control.
+  const SUPPORT_ROLES = [
+    { roleCode: "SUPPORT_DESK", roleName: "Support Desk" },
+    { roleCode: "SUPPORT_LEAD", roleName: "Support Lead" },
+    { roleCode: "PRODUCT_OPS", roleName: "Product / Ops" },
+  ];
+  for (const r of SUPPORT_ROLES) {
+    await prisma.roleMaster.upsert({
+      where: { roleCode: r.roleCode },
+      update: {},
+      create: { ...r, companyCode: "SIHL", hierarchyCode: "0200", isActive: true },
+    });
+  }
+
+  // NOTE: four of these pages are not built yet (Triage Queue is step 5, Change Requests
+  // step 6, Document Requests step 7, Issue Categories step 3), so their menu items are
+  // live but 404. Gating them on an "is it built" flag is parked, because deactivating a
+  // menu also removes it from getAccessibleMenuCodes — and canLogForOthers() in
+  // src/lib/tickets.ts derives support-staff status from the SUP_QUEUE grant, so hiding
+  // that one menu would silently revoke the ability to log a ticket for someone else.
+  const SUPPORT_MENUS: {
+    code: string;
+    parent: string | null;
+    name: string;
+    icon: string;
+    route: string | null;
+    level: number;
+    order: number;
+  }[] = [
+    { code: "SUPPORT_ROOT", parent: null, name: "Support", icon: "🎧", route: null, level: 1, order: 10 },
+    { code: "SUP_RAISE", parent: "SUPPORT_ROOT", name: "Raise a Ticket", icon: "✏️", route: "/support/tickets/new", level: 2, order: 10 },
+    { code: "SUP_MY", parent: "SUPPORT_ROOT", name: "My Tickets", icon: "🎫", route: "/support/tickets", level: 2, order: 20 },
+    { code: "SUP_QUEUE", parent: "SUPPORT_ROOT", name: "Triage Queue", icon: "📥", route: "/support/queue", level: 2, order: 30 },
+    { code: "SUP_CR", parent: "SUPPORT_ROOT", name: "Change Requests", icon: "🚧", route: "/support/change-requests", level: 2, order: 40 },
+    { code: "SUP_DOCS", parent: "SUPPORT_ROOT", name: "Document Requests", icon: "📄", route: "/support/documents", level: 2, order: 50 },
+    // Lives in the Support app, not /admin: §4.3 makes the support lead the owner, and an
+    // /admin route would put it behind requireAdmin() and out of their reach.
+    { code: "SUP_CATEGORIES", parent: "SUPPORT_ROOT", name: "Issue Categories", icon: "🏷️", route: "/support/categories", level: 2, order: 60 },
+  ];
+
+  for (const m of SUPPORT_MENUS) {
+    await prisma.menuMaster.upsert({
+      where: { menuCode: m.code },
+      update: {
+        appCode: "SUPPORT",
+        menuName: m.name,
+        icon: m.icon,
+        routePath: m.route,
+        level: m.level,
+        parentMenuCode: m.parent,
+        displayOrder: m.order,
+        isActive: true,
+      },
+      create: {
+        appCode: "SUPPORT",
+        menuCode: m.code,
+        parentMenuCode: m.parent,
+        menuName: m.name,
+        icon: m.icon,
+        menuType: "ROUTE",
+        routePath: m.route,
+        level: m.level,
+        displayOrder: m.order,
+        companyCode: "SIHL",
+        hierarchyCode: "9999",
+        isActive: true,
+      },
+    });
+  }
+
+  const SUPPORT_MENU_GRANTS: Record<string, string[]> = {
+    SUPPORT_DESK: ["SUPPORT_ROOT", "SUP_RAISE", "SUP_MY", "SUP_QUEUE", "SUP_CR", "SUP_DOCS"],
+    SUPPORT_LEAD: SUPPORT_MENUS.map((m) => m.code),
+    PRODUCT_OPS: ["SUPPORT_ROOT", "SUP_MY", "SUP_CR"],
+  };
+
+  // getAccessibleMenuCodes filters role_menu_map by the *user's* hierarchy, so a grant only
+  // takes effect for users in a hierarchy it was created for. Seeding across the staff
+  // hierarchies means assigning a support role to any staff user just works, rather than
+  // silently showing them an empty app.
+  const STAFF_HIERARCHIES = ["0000", "0100", "0200", "0300"];
+  for (const [roleCode, menuCodes] of Object.entries(SUPPORT_MENU_GRANTS)) {
+    for (const hierarchyCode of STAFF_HIERARCHIES) {
+      for (const menuCode of menuCodes) {
+        await prisma.roleMenuMap.upsert({
+          where: {
+            roleCode_menuCode_companyCode_hierarchyCode: {
+              roleCode,
+              menuCode,
+              companyCode: "SIHL",
+              hierarchyCode,
+            },
+          },
+          update: { isActive: true },
+          create: { roleCode, menuCode, companyCode: "SIHL", hierarchyCode, isActive: true },
+        });
+      }
+    }
+  }
+
+  // ADMIN too, at 9999, so the seeded admin account can exercise the whole module without
+  // first being given a support role.
+  for (const m of SUPPORT_MENUS) {
+    await prisma.roleMenuMap.upsert({
+      where: {
+        roleCode_menuCode_companyCode_hierarchyCode: {
+          roleCode: "ADMIN",
+          menuCode: m.code,
+          companyCode: "SIHL",
+          hierarchyCode: "9999",
+        },
+      },
+      update: { isActive: true },
+      create: { roleCode: "ADMIN", menuCode: m.code, companyCode: "SIHL", hierarchyCode: "9999", isActive: true },
+    });
+  }
+
+  // A demo client. BRS §3 lists the client as an actor who raises issues and service
+  // requests, and §4.7's delivery rules cannot resolve a target at all without one — a staff
+  // member requesting a ledger needs a real client record with a registered email to send to
+  // and copy. CLIENT_SELF is the client-facing role: raise a ticket, see your own, request a
+  // document. Deliberately no triage queue, so canLogForOthers() stays false for them.
+  const demoClient = await prisma.userDetails.upsert({
+    where: { username: "Client001" },
+    update: { email: "client.demo@example.com", customerId: "C1001" },
+    create: {
+      companyCode: "SIHL",
+      username: "Client001",
+      passwordHash: await bcrypt.hash(SEED_PASSWORD, 10),
+      customerId: "C1001",
+      fullName: "Demo Client One",
+      mobile: "9700000001",
+      email: "client.demo@example.com",
+      lastPasswordChangedDate: new Date("1900-01-01"),
+      hierarchyCode: "0800",
+      clientCategoryCode: "C00",
+      isActive: true,
+    },
+  });
+
+  await prisma.roleMaster.upsert({
+    where: { roleCode: "CLIENT_SELF" },
+    update: {},
+    create: {
+      roleCode: "CLIENT_SELF",
+      roleName: "Client Self-Service",
+      companyCode: "SIHL",
+      hierarchyCode: "0800",
+      isActive: true,
+    },
+  });
+  for (const menuCode of ["SUPPORT_ROOT", "SUP_RAISE", "SUP_MY", "SUP_DOCS"]) {
+    await prisma.roleMenuMap.upsert({
+      where: {
+        roleCode_menuCode_companyCode_hierarchyCode: {
+          roleCode: "CLIENT_SELF",
+          menuCode,
+          companyCode: "SIHL",
+          hierarchyCode: "0800",
+        },
+      },
+      update: { isActive: true },
+      create: { roleCode: "CLIENT_SELF", menuCode, companyCode: "SIHL", hierarchyCode: "0800", isActive: true },
+    });
+  }
+  await prisma.userRoleMap.upsert({
+    where: { userUid_roleCode: { userUid: demoClient.uid, roleCode: "CLIENT_SELF" } },
+    update: { isActive: true },
+    create: { userUid: demoClient.uid, roleCode: "CLIENT_SELF", isActive: true },
+  });
+
+  // Give Manesh001 the desk role. Without this the three support roles exist but belong to
+  // nobody, so there is no way to exercise the module as anyone other than an administrator
+  // — and in particular no way to check that §4.6's approval gate actually holds, since ADMIN
+  // can approve. This account can propose a change request but must not be able to decide it.
+  await prisma.userRoleMap.upsert({
+    where: { userUid_roleCode: { userUid: user.uid, roleCode: "SUPPORT_DESK" } },
+    update: { isActive: true },
+    create: { userUid: user.uid, roleCode: "SUPPORT_DESK", isActive: true },
+  });
+
+  // Provisional taxonomy (§4.3). BRS §11 item 2 leaves the final list to the support lead,
+  // who revises it in-app — these are a workable starting set, not a fixed catalogue.
+  const ISSUE_CATEGORIES: { code: string; name: string; module: string; type: string; order: number }[] = [
+    { code: "EQ-QUERY", name: "Equities — Query", module: "Equities", type: "QUERY", order: 10 },
+    { code: "EQ-BUG", name: "Equities — Bug", module: "Equities", type: "BUG", order: 20 },
+    { code: "EQ-COMPLAINT", name: "Equities — Complaint", module: "Equities", type: "COMPLAINT", order: 30 },
+    { code: "FO-QUERY", name: "Derivatives — Query", module: "Derivatives", type: "QUERY", order: 40 },
+    { code: "FO-BUG", name: "Derivatives — Bug", module: "Derivatives", type: "BUG", order: 50 },
+    { code: "BO-QUERY", name: "Back Office — Query", module: "Back Office", type: "QUERY", order: 60 },
+    { code: "BO-COMPLAINT", name: "Back Office — Complaint", module: "Back Office", type: "COMPLAINT", order: 70 },
+    { code: "BO-SERVICE_REQUEST", name: "Back Office — Document Request", module: "Back Office", type: "SERVICE_REQUEST", order: 80 },
+    { code: "RMS-QUERY", name: "RMS — Query", module: "RMS", type: "QUERY", order: 90 },
+    { code: "RMS-COMPLAINT", name: "RMS — Complaint", module: "RMS", type: "COMPLAINT", order: 100 },
+    { code: "RMS-BUG", name: "RMS — Bug", module: "RMS", type: "BUG", order: 110 },
+    { code: "PAY-QUERY", name: "Payments & Funds — Query", module: "Payments & Funds", type: "QUERY", order: 120 },
+    { code: "PAY-COMPLAINT", name: "Payments & Funds — Complaint", module: "Payments & Funds", type: "COMPLAINT", order: 130 },
+    { code: "KYC-QUERY", name: "KYC & Onboarding — Query", module: "KYC & Onboarding", type: "QUERY", order: 140 },
+    { code: "KYC-SERVICE_REQUEST", name: "KYC & Onboarding — Service Request", module: "KYC & Onboarding", type: "SERVICE_REQUEST", order: 150 },
+  ];
+
+  for (const c of ISSUE_CATEGORIES) {
+    await prisma.issueCategory.upsert({
+      where: { categoryCode: c.code },
+      update: { categoryName: c.name, productModule: c.module, issueType: c.type, displayOrder: c.order },
+      create: {
+        categoryCode: c.code,
+        categoryName: c.name,
+        productModule: c.module,
+        issueType: c.type,
+        displayOrder: c.order,
+        isActive: true,
+      },
+    });
+  }
+
+  // --- §4.8 Basic reporting -------------------------------------------------
+  //
+  // Built as ReportDefinition rows rather than a bespoke page. That is the whole point of
+  // the engine: filters, typed formatting, sorting, totals, CSV export and drill-down come
+  // for free, the SQL runs on the read-only connection behind assertSelectOnly, and Phase 2's
+  // CEO dashboard can read the same definitions. §4.8 explicitly asks for a report, not a
+  // dashboard, so nothing here is bespoke UI.
+  //
+  // Every query filters `merged_into_ticket_id IS NULL`. That is the §4.4 rule made real:
+  // an absorbed ticket's history lives on the surviving thread, so counting both would
+  // double-count one issue and drag the average turnaround down.
+  //
+  // Scoping uses `:SESSION_COMPANY` inside each query rather than companyScopeColumn,
+  // because these are aggregates — there is no per-row company column to wrap once a result
+  // has been grouped by day.
+
+  await prisma.filterComponentMaster.createMany({
+    data: [
+      {
+        componentCode: "SUPPORT_DATE_RANGE",
+        componentName: "Date Range",
+        componentType: "DATE_RANGE",
+        dataSourceType: "NONE",
+      },
+      {
+        componentCode: "SUPPORT_PRODUCT_MODULE",
+        componentName: "Product / Module",
+        componentType: "DROPDOWN",
+        dataSourceType: "SQL",
+        dataSourceQuery:
+          "SELECT DISTINCT product_module AS value, product_module AS label FROM issue_category " +
+          "WHERE is_active = true ORDER BY product_module",
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  for (const [filterId, filterName] of [
+    ["SUPPORT_STATS_FILTER", "Ticket Stats Filter"],
+    ["SUPPORT_CATEGORY_FILTER", "Ticket Category Filter"],
+    ["SUPPORT_TICKETS_FILTER", "Ticket List Filter"],
+  ]) {
+    await prisma.filterDefinition.upsert({
+      where: { filterId },
+      update: {},
+      create: { filterId, filterName, isCollapsible: true, defaultCollapsed: false },
+    });
+    const existing = await prisma.filterDefinitionItem.findMany({ where: { filterId } });
+    if (existing.length === 0) {
+      // Same componentCode across all three filters on purpose — that is what makes the
+      // drill-down's automatic carry-over work, with no source->target mapping to configure.
+      await prisma.filterDefinitionItem.create({
+        data: {
+          filterId,
+          componentCode: "SUPPORT_DATE_RANGE",
+          rowNo: 1,
+          positionNo: 1,
+          // Mandatory only for the daily report, whose day series needs real bounds.
+          isMandatory: filterId === "SUPPORT_STATS_FILTER",
+        },
+      });
+      if (filterId === "SUPPORT_TICKETS_FILTER") {
+        await prisma.filterDefinitionItem.create({
+          data: { filterId, componentCode: "SUPPORT_PRODUCT_MODULE", rowNo: 1, positionNo: 2 },
+        });
+      }
+    }
+  }
+
+  const dailyStatsData = {
+    reportTitle: "Daily Ticket Stats",
+    filterId: "SUPPORT_STATS_FILTER",
+    mode: "REPORT",
+    queryText:
+      "WITH bounds AS (SELECT " +
+      "COALESCE(:SUPPORT_DATE_RANGE_FROM::date, (CURRENT_DATE - INTERVAL '30 days')::date) AS d_from, " +
+      "COALESCE(:SUPPORT_DATE_RANGE_TO::date, CURRENT_DATE) AS d_to), " +
+      "days AS (SELECT generate_series((SELECT d_from FROM bounds), (SELECT d_to FROM bounds), INTERVAL '1 day')::date AS day), " +
+      "scoped AS (SELECT * FROM ticket WHERE merged_into_ticket_id IS NULL AND company_code = :SESSION_COMPANY), " +
+      "raised AS (SELECT raised_at::date AS d, COUNT(*)::int AS n FROM scoped GROUP BY 1), " +
+      "closed AS (SELECT closed_at::date AS d, COUNT(*)::int AS n FROM scoped WHERE closed_at IS NOT NULL GROUP BY 1), " +
+      "fwd AS (SELECT e.created_at::date AS d, COUNT(DISTINCT e.ticket_id)::int AS n FROM ticket_event e " +
+      "JOIN scoped t ON t.id = e.ticket_id WHERE e.event_type = 'FORWARD' GROUP BY 1), " +
+      "res AS (SELECT resolved_at::date AS d, " +
+      "ROUND((AVG(EXTRACT(EPOCH FROM (resolved_at - sla_clock_start_at))) / 3600.0)::numeric, 2) AS hrs " +
+      "FROM scoped WHERE resolved_at IS NOT NULL GROUP BY 1) " +
+      "SELECT days.day AS stat_date, COALESCE(raised.n, 0) AS tickets_raised, " +
+      "COALESCE(closed.n, 0) AS tickets_closed, COALESCE(fwd.n, 0) AS tickets_forwarded, " +
+      "res.hrs AS avg_turnaround_hours FROM days " +
+      "LEFT JOIN raised ON raised.d = days.day LEFT JOIN closed ON closed.d = days.day " +
+      "LEFT JOIN fwd ON fwd.d = days.day LEFT JOIN res ON res.d = days.day " +
+      "ORDER BY days.day DESC",
+    maxRows: 2000,
+    freezeColumns: 0,
+    displayStyle: "PAGED",
+    footerNote:
+      "Merged tickets are counted once, on the surviving thread. Turnaround runs from the ticket's clock start, which a merge moves back to the earlier of the two reports.",
+    allowedFormats: ["CSV"],
+    allowedDeliveries: ["DOWNLOAD"],
+    isActive: true,
+  };
+  await prisma.reportDefinition.upsert({
+    where: { reportId: "SUPPORT_DAILY_STATS" },
+    update: dailyStatsData,
+    create: { reportId: "SUPPORT_DAILY_STATS", ...dailyStatsData },
+  });
+  await prisma.reportColumn.deleteMany({ where: { reportId: "SUPPORT_DAILY_STATS" } });
+  await prisma.reportColumn.createMany({
+    data: [
+      { reportId: "SUPPORT_DAILY_STATS", columnKey: "stat_date", displayLabel: "Date", displayOrder: 1, dataType: "DATE" },
+      { reportId: "SUPPORT_DAILY_STATS", columnKey: "tickets_raised", displayLabel: "Raised", displayOrder: 2, dataType: "NUMBER", showTotal: true },
+      { reportId: "SUPPORT_DAILY_STATS", columnKey: "tickets_closed", displayLabel: "Closed", displayOrder: 3, dataType: "NUMBER", showTotal: true },
+      { reportId: "SUPPORT_DAILY_STATS", columnKey: "tickets_forwarded", displayLabel: "Forwarded", displayOrder: 4, dataType: "NUMBER", showTotal: true },
+      {
+        reportId: "SUPPORT_DAILY_STATS",
+        columnKey: "avg_turnaround_hours",
+        displayLabel: "Avg Turnaround (hrs)",
+        displayOrder: 5,
+        dataType: "NUMBER",
+        decimalPlaces: 2,
+        isHighlighted: true,
+        // Deliberately no total: summing daily averages would be arithmetically meaningless.
+        showTotal: false,
+      },
+    ],
+  });
+
+  // Drill target — reachable only from Ticket Categories, so it gets no menu entry, the
+  // same arrangement as SALES_DETAIL.
+  const ticketListData = {
+    reportTitle: "Ticket List",
+    filterId: "SUPPORT_TICKETS_FILTER",
+    mode: "REPORT",
+    queryText:
+      "SELECT t.ticket_no, t.subject, c.product_module, c.category_name, t.status, t.channel, " +
+      "t.raised_at, t.resolved_at, " +
+      "ROUND((EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, NOW()) - t.sla_clock_start_at)) / 3600.0)::numeric, 2) AS turnaround_hours, " +
+      "COALESCE(u.full_name, t.guest_name, 'Guest') AS raised_by " +
+      "FROM ticket t JOIN issue_category c ON c.category_code = t.category_code " +
+      "LEFT JOIN user_details u ON u.uid = t.raiser_uid " +
+      "WHERE t.merged_into_ticket_id IS NULL AND t.company_code = :SESSION_COMPANY " +
+      "AND (:SUPPORT_DATE_RANGE_FROM::date IS NULL OR t.raised_at::date >= :SUPPORT_DATE_RANGE_FROM) " +
+      "AND (:SUPPORT_DATE_RANGE_TO::date IS NULL OR t.raised_at::date <= :SUPPORT_DATE_RANGE_TO) " +
+      "AND (:SUPPORT_PRODUCT_MODULE::text IS NULL OR c.product_module = :SUPPORT_PRODUCT_MODULE) " +
+      "ORDER BY t.raised_at DESC",
+    maxRows: 2000,
+    freezeColumns: 0,
+    displayStyle: "PAGED",
+    footerNote: "Excludes tickets merged into another thread.",
+    allowedFormats: ["CSV"],
+    allowedDeliveries: ["DOWNLOAD"],
+    isActive: true,
+  };
+  await prisma.reportDefinition.upsert({
+    where: { reportId: "SUPPORT_TICKET_LIST" },
+    update: ticketListData,
+    create: { reportId: "SUPPORT_TICKET_LIST", ...ticketListData },
+  });
+  await prisma.reportColumn.deleteMany({ where: { reportId: "SUPPORT_TICKET_LIST" } });
+  await prisma.reportColumn.createMany({
+    data: [
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "ticket_no", displayLabel: "Ticket", displayOrder: 1, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "subject", displayLabel: "Subject", displayOrder: 2, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "product_module", displayLabel: "Module", displayOrder: 3, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "category_name", displayLabel: "Category", displayOrder: 4, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "raised_by", displayLabel: "Raised By", displayOrder: 5, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "status", displayLabel: "Status", displayOrder: 6, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "channel", displayLabel: "Channel", displayOrder: 7, dataType: "TEXT" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "raised_at", displayLabel: "Raised", displayOrder: 8, dataType: "DATETIME" },
+      { reportId: "SUPPORT_TICKET_LIST", columnKey: "resolved_at", displayLabel: "Resolved", displayOrder: 9, dataType: "DATETIME" },
+      {
+        reportId: "SUPPORT_TICKET_LIST",
+        columnKey: "turnaround_hours",
+        displayLabel: "Turnaround (hrs)",
+        displayOrder: 10,
+        dataType: "NUMBER",
+        decimalPlaces: 2,
+      },
+    ],
+  });
+
+  const categoryStatsData = {
+    reportTitle: "Tickets by Category",
+    filterId: "SUPPORT_CATEGORY_FILTER",
+    mode: "REPORT",
+    queryText:
+      "SELECT c.product_module, c.issue_type, c.category_name, COUNT(*)::int AS tickets_raised, " +
+      "COUNT(*) FILTER (WHERE t.status IN ('OPEN','IN_PROGRESS','FORWARDED','AWAITING_CR_APPROVAL'))::int AS still_open, " +
+      "COUNT(*) FILTER (WHERE t.resolved_at IS NOT NULL)::int AS resolved, " +
+      "ROUND((AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.sla_clock_start_at))) FILTER (WHERE t.resolved_at IS NOT NULL) / 3600.0)::numeric, 2) AS avg_turnaround_hours " +
+      "FROM ticket t JOIN issue_category c ON c.category_code = t.category_code " +
+      "WHERE t.merged_into_ticket_id IS NULL AND t.company_code = :SESSION_COMPANY " +
+      "AND (:SUPPORT_DATE_RANGE_FROM::date IS NULL OR t.raised_at::date >= :SUPPORT_DATE_RANGE_FROM) " +
+      "AND (:SUPPORT_DATE_RANGE_TO::date IS NULL OR t.raised_at::date <= :SUPPORT_DATE_RANGE_TO) " +
+      "GROUP BY 1, 2, 3 ORDER BY 4 DESC",
+    maxRows: 2000,
+    freezeColumns: 0,
+    displayStyle: "PAGED",
+    footerNote: "Click a module to see the tickets behind the number.",
+    allowedFormats: ["CSV"],
+    allowedDeliveries: ["DOWNLOAD"],
+    isActive: true,
+  };
+  await prisma.reportDefinition.upsert({
+    where: { reportId: "SUPPORT_CATEGORY_STATS" },
+    update: categoryStatsData,
+    create: { reportId: "SUPPORT_CATEGORY_STATS", ...categoryStatsData },
+  });
+  await prisma.reportColumn.deleteMany({ where: { reportId: "SUPPORT_CATEGORY_STATS" } });
+  await prisma.reportColumn.createMany({
+    data: [
+      {
+        reportId: "SUPPORT_CATEGORY_STATS",
+        columnKey: "product_module",
+        displayLabel: "Product / Module",
+        displayOrder: 1,
+        dataType: "TEXT",
+        // Phase 2's dashboard wants "which topics drive the volume"; this is that, one
+        // click deep, without any new UI.
+        drillDownReportId: "SUPPORT_TICKET_LIST",
+        drillDownTargetParam: "SUPPORT_PRODUCT_MODULE",
+        drillDownMode: "PAGE",
+      },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "issue_type", displayLabel: "Issue Type", displayOrder: 2, dataType: "TEXT" },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "category_name", displayLabel: "Category", displayOrder: 3, dataType: "TEXT" },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "tickets_raised", displayLabel: "Raised", displayOrder: 4, dataType: "NUMBER", showTotal: true },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "still_open", displayLabel: "Still Open", displayOrder: 5, dataType: "NUMBER", showTotal: true, isHighlighted: true },
+      { reportId: "SUPPORT_CATEGORY_STATS", columnKey: "resolved", displayLabel: "Resolved", displayOrder: 6, dataType: "NUMBER", showTotal: true },
+      {
+        reportId: "SUPPORT_CATEGORY_STATS",
+        columnKey: "avg_turnaround_hours",
+        displayLabel: "Avg Turnaround (hrs)",
+        displayOrder: 7,
+        dataType: "NUMBER",
+        decimalPlaces: 2,
+      },
+    ],
+  });
+
+  const REPORT_MENUS = [
+    { code: "SUP_RPT_DAILY", name: "Daily Ticket Stats", reportId: "SUPPORT_DAILY_STATS", order: 70 },
+    { code: "SUP_RPT_CATEGORY", name: "Tickets by Category", reportId: "SUPPORT_CATEGORY_STATS", order: 80 },
+  ];
+  for (const m of REPORT_MENUS) {
+    await prisma.menuMaster.upsert({
+      where: { menuCode: m.code },
+      update: { appCode: "SUPPORT", menuName: m.name, menuType: "REPORT", reportId: m.reportId, isActive: true },
+      create: {
+        appCode: "SUPPORT",
+        menuCode: m.code,
+        parentMenuCode: "SUPPORT_ROOT",
+        menuName: m.name,
+        icon: "📊",
+        menuType: "REPORT",
+        reportId: m.reportId,
+        level: 2,
+        displayOrder: m.order,
+        companyCode: "SIHL",
+        hierarchyCode: "9999",
+        isActive: true,
+      },
+    });
+
+    for (const [roleCode, hierarchies] of [
+      ["SUPPORT_DESK", STAFF_HIERARCHIES],
+      ["SUPPORT_LEAD", STAFF_HIERARCHIES],
+      ["PRODUCT_OPS", STAFF_HIERARCHIES],
+      ["ADMIN", ["9999"]],
+    ] as const) {
+      for (const hierarchyCode of hierarchies) {
+        await prisma.roleMenuMap.upsert({
+          where: {
+            roleCode_menuCode_companyCode_hierarchyCode: {
+              roleCode,
+              menuCode: m.code,
+              companyCode: "SIHL",
+              hierarchyCode,
+            },
+          },
+          update: { isActive: true },
+          create: { roleCode, menuCode: m.code, companyCode: "SIHL", hierarchyCode, isActive: true },
+        });
+      }
+    }
   }
 
   console.log("Seed complete.");

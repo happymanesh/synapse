@@ -19,22 +19,32 @@ export default async function LoginPage() {
         className="relative flex flex-1 flex-col justify-between overflow-hidden p-10 text-white md:min-h-screen"
         style={{ backgroundImage: "linear-gradient(135deg, #0a3d6b 0%, #0d2744 60%, #081a2f 100%)" }}
       >
+        {/* The logo is a wordmark carrying the company name, so it stands alone rather than
+            beside a repeat of it in text. The white plate stays because the asset is a JPEG
+            with no transparency and this panel is a dark gradient. Intrinsic dimensions give
+            the aspect ratio; the height class plus an inline width:auto scales it without
+            tripping Next's aspect-ratio warning. */}
         <div className="relative z-10 flex items-center gap-3">
-          {company?.companyLogoFileLocation && (
-            <div className="rounded-xl bg-white p-2 shadow-lg">
+          {company?.companyLogoFileLocation ? (
+            <div className="rounded-xl bg-white p-2.5 shadow-lg">
               <Image
                 src={company.companyLogoFileLocation}
                 alt={company.companyName ?? "SIHL"}
-                width={44}
-                height={44}
-                className="object-contain"
+                width={249}
+                height={96}
+                className="h-9 object-contain"
+                // Inline, not a Tailwind class: next/image's dev-only aspect-ratio check
+                // reads the element's inline style attribute, so `w-auto` in a stylesheet
+                // class renders correctly but still trips the warning.
+                style={{ width: "auto" }}
                 priority
               />
             </div>
+          ) : (
+            <span className="text-sm font-semibold tracking-[0.2em] text-white/70 uppercase">
+              {company?.companyName ?? "SIHL"}
+            </span>
           )}
-          <span className="text-sm font-semibold tracking-[0.2em] text-white/70 uppercase">
-            {company?.companyName ?? "SIHL"}
-          </span>
         </div>
         <div className="relative z-10 max-w-md">
           <h1 className="text-4xl font-extrabold tracking-tight text-white">Synapse</h1>

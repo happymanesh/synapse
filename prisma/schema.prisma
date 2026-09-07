@@ -22,6 +22,7 @@ model CompanyMaster {
   roles        RoleMaster[]
   roleMenuMaps RoleMenuMap[]
   apps         AppMaster[]
+  tickets      Ticket[]
 
   @@map("company_master")
 }
@@ -105,6 +106,18 @@ model UserDetails {
   sentNotifications   Notification[]     @relation("SentNotifications")
   directNotifications Notification[]     @relation("DirectNotifications")
   notificationReads   NotificationRead[]
+
+  // Issue tracker (docs/04-issue-tracker-brs.md). Every one of these is onDelete: Restrict
+  // on the owning side — attribution has to survive, and this app deactivates users rather
+  // than deleting them. Note that ticket_event deliberately has NO relation here: audit
+  // rows denormalise the username so they outlive the user, as menu_usage_log does.
+  ticketsRaised            Ticket[]         @relation("TicketRaiser")
+  ticketsOnBehalf          Ticket[]         @relation("TicketOnBehalf")
+  ticketsAssigned          Ticket[]         @relation("TicketAssignee")
+  changeRequestsRaised     ChangeRequest[]  @relation("CrRequestedBy")
+  changeRequestsApproved   ChangeRequest[]  @relation("CrApprovedBy")
+  serviceRequestsRaised    ServiceRequest[] @relation("SrRequestedBy")
+  serviceRequestsForClient ServiceRequest[] @relation("SrForClient")
 
   @@index([companyCode])
   @@map("user_details")
@@ -329,6 +342,7 @@ model ReportDefinition {
   highlightRules     ReportRowHighlightRule[]
   menuItems          MenuMaster[]
   drilledFromColumns ReportColumn[]           @relation("ColumnDrillDownTarget")
+  serviceRequests    ServiceRequest[]
 
   @@map("report_definition")
 }
@@ -466,4 +480,279 @@ model MenuUsageLog {
   @@index([selectedAt])
   @@index([userUid, selectedAt])
   @@map("menu_usage_log")
+}
+
+// ---------------------------------------------------------------------------
+// Issue Tracker & Service Request System — Phase 1.
+// Spec: docs/04-issue-tracker-brs.md. Migration: 20260805103000_issue_tracker_phase1.
+// Status/type columns are String + an enumerating comment, matching menuType,
+// componentType and targetType above rather than introducing Prisma enums.
+// ---------------------------------------------------------------------------
+
+/// Predefined issue taxonomy on two axes: product/module x issue type (BRS §4.3).
+/// Owned reactively by the support lead — no fixed review cadence. The axes are separate
+/// columns rather than one opaque label because the §4.8 stats reports (and the Phase 2
+/// CEO dashboard) group by them.
+model IssueCategory {
+  categoryCode  String  @id @map("category_code")
+  categoryName  String  @map("category_name")
+  productModule String  @map("product_module")
+  issueType     String  @map("issue_type") // QUERY | COMPLAINT | BUG | SERVICE_REQUEST
+  description   String?
+  displayOrder  Int     @default(0) @map("display_order")
+  isActive      Boolean @default(true) @map("is_active")
+
+  tickets Ticket[]
+
+  @@index([isActive, displayOrder])
+  @@index([productModule, issueType])
+  @@map("issue_category")
+}
+
+/// One issue thread. Never hard-deleted — merge and closure are state changes, so the
+/// audit trail in TicketEvent always resolves to a live row (BRS §5, dispute resolution).
+model Ticket {
+  id Int @id @default(autoincrement())
+  /// Allocated by a Postgres sequence default, so no intake path can create a ticket
+  /// without a number and concurrent intake across four channels cannot collide. The year
+  /// is a display prefix only — the sequence does not reset annually, so a number is never
+  /// reused.
+  ticketNo String @unique @default(dbgenerated("((('TKT-'::text || to_char((CURRENT_DATE)::timestamp with time zone, 'YYYY'::text)) || '-'::text) || lpad((nextval('ticket_no_seq'::regclass))::text, 6, '0'::text))")) @map("ticket_no")
+
+  /// NULL for a guest ticket (§4.2), backfilled on reconciliation. The guest* columns are
+  /// never cleared, so the row always shows what was actually captured at intake.
+  raiserUid     Int?    @map("raiser_uid")
+  raiserType    String  @map("raiser_type") // EMPLOYEE | CLIENT | PARTNER | PROSPECT | GUEST
+  guestName     String? @map("guest_name")
+  guestEmail    String? @map("guest_email")
+  guestMobile   String? @map("guest_mobile")
+  /// Set when an employee logs a ticket for a client (phone / WhatsApp intake).
+  onBehalfOfUid Int?    @map("on_behalf_of_uid")
+  clientCode    String? @map("client_code")
+
+  channel      String // WEBSITE | WHATSAPP | PHONE | SYNAPSE
+  categoryCode String @map("category_code")
+  subject      String
+  description  String
+  companyCode  String @map("company_code")
+
+  status        String    @default("OPEN")
+  // OPEN | IN_PROGRESS | FORWARDED | AWAITING_CR_APPROVAL | RESOLVED | CLOSED | MERGED
+  assignedToUid Int?      @map("assigned_to_uid")
+  revisedEta    DateTime? @map("revised_eta")
+
+  /// Immutable: when THIS ticket was actually raised. Never rewritten, including by merge.
+  raisedAt        DateTime  @default(now()) @map("raised_at")
+  /// The turnaround clock (§4.4 — confirmed rule: the earlier of the two on merge).
+  /// Normally equals raisedAt. Deliberately has no default: a back-dated phone ticket must
+  /// not silently start its clock at now() and understate the §4.8 turnaround metric.
+  slaClockStartAt DateTime  @map("sla_clock_start_at")
+  firstResponseAt DateTime? @map("first_response_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  closedAt        DateTime? @map("closed_at")
+
+  /// Set on the ABSORBED ticket, pointing at the surviving thread. Non-null means this row
+  /// is no longer tracked separately — reports filter `mergedIntoTicketId: null` so a
+  /// merged pair counts once.
+  mergedIntoTicketId Int?      @map("merged_into_ticket_id")
+  mergedAt           DateTime? @map("merged_at")
+
+  createdBy String   @map("created_by")
+  updatedBy String?  @map("updated_by")
+  updatedOn DateTime @default(now()) @updatedAt @map("updated_on")
+
+  category   IssueCategory @relation(fields: [categoryCode], references: [categoryCode])
+  company    CompanyMaster @relation(fields: [companyCode], references: [companyCode])
+  raiser     UserDetails?  @relation("TicketRaiser", fields: [raiserUid], references: [uid], onDelete: Restrict)
+  onBehalfOf UserDetails?  @relation("TicketOnBehalf", fields: [onBehalfOfUid], references: [uid], onDelete: Restrict)
+  assignedTo UserDetails?  @relation("TicketAssignee", fields: [assignedToUid], references: [uid], onDelete: Restrict)
+
+  mergedInto    Ticket?  @relation("TicketMerge", fields: [mergedIntoTicketId], references: [id], onDelete: Restrict)
+  mergedTickets Ticket[] @relation("TicketMerge")
+
+  events        TicketEvent[]    @relation("TicketEventTicket")
+  relatedEvents TicketEvent[]    @relation("TicketEventRelated")
+  changeRequest ChangeRequest?
+  messages      ChannelMessage[]
+
+  @@index([status, raisedAt])
+  @@index([assignedToUid, status])
+  @@index([companyCode, raisedAt])
+  @@index([mergedIntoTicketId])
+  @@index([raiserUid, status])
+  /// Serves the §4.4 duplicate probe: same category + still open + inside a rolling window.
+  @@index([categoryCode, status, raisedAt])
+  @@map("ticket")
+}
+
+/// Append-only audit trail (§4.5): never updated, never deleted.
+///
+/// No relations to UserDetails and usernames are denormalised — same reasoning as
+/// MenuUsageLog. A row used to settle a dispute months later must stay readable after the
+/// user it names is removed or renamed. ticketId IS a real relation, since events are only
+/// ever read in the context of a ticket that must therefore still exist.
+model TicketEvent {
+  id        Int    @id @default(autoincrement())
+  ticketId  Int    @map("ticket_id")
+  eventType String @map("event_type")
+  // CREATED | STATUS_CHANGE | FORWARD | ASSIGN | REMARK | ETA_REVISED | MERGE
+  // | IDENTITY_RECONCILED | CR_PROPOSED | CR_APPROVED | CR_REJECTED | NOTIFICATION
+
+  fromStatus String? @map("from_status")
+  toStatus   String? @map("to_status")
+
+  fromUserUid  Int?    @map("from_user_uid")
+  fromUsername String? @map("from_username")
+  toUserUid    Int?    @map("to_user_uid")
+  toUsername   String? @map("to_username")
+
+  /// §4.5 requires who, when AND why on every forward — mandatory for FORWARD in the API.
+  remarks         String?
+  revisedEta      DateTime? @map("revised_eta")
+  /// MERGE only: the other ticket in the pair, so the trail reads two-way.
+  relatedTicketId Int?      @map("related_ticket_id")
+
+  actorUid      Int?     @map("actor_uid")
+  actorUsername String   @map("actor_username")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  ticket        Ticket  @relation("TicketEventTicket", fields: [ticketId], references: [id])
+  relatedTicket Ticket? @relation("TicketEventRelated", fields: [relatedTicketId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
+  @@index([eventType, createdAt])
+  @@map("ticket_event")
+}
+
+/// Change request converted from a ticket (§4.6). One per originating ticket.
+///
+/// Two-step by design: the desk PROPOSES (approvalStatus PENDING, ticket moves to
+/// AWAITING_CR_APPROVAL) and Product/Ops APPROVES — only then is the ticket closed and the
+/// item parked in the backlog. §4.6 is explicit that the support desk cannot unilaterally
+/// park an item, so approval cannot be a field simply set at creation time.
+model ChangeRequest {
+  id       Int    @id @default(autoincrement())
+  crNo     String @unique @default(dbgenerated("((('CR-'::text || to_char((CURRENT_DATE)::timestamp with time zone, 'YYYY'::text)) || '-'::text) || lpad((nextval('change_request_no_seq'::regclass))::text, 6, '0'::text))")) @map("cr_no")
+  ticketId Int    @unique @map("ticket_id")
+
+  title       String
+  description String
+
+  requestedByUid  Int       @map("requested_by_uid")
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  approvalStatus  String    @default("PENDING") @map("approval_status") // PENDING | APPROVED | REJECTED
+  approvedByUid   Int?      @map("approved_by_uid")
+  approvedAt      DateTime? @map("approved_at")
+  approvalRemarks String?   @map("approval_remarks")
+
+  /// Only meaningful once approvalStatus = APPROVED.
+  backlogStatus String? @map("backlog_status") // BACKLOG | PLANNED | IN_DEVELOPMENT | RELEASED | DROPPED
+  targetRelease String? @map("target_release")
+
+  createdBy String   @map("created_by")
+  updatedBy String?  @map("updated_by")
+  updatedOn DateTime @default(now()) @updatedAt @map("updated_on")
+
+  ticket      Ticket       @relation(fields: [ticketId], references: [id])
+  requestedBy UserDetails  @relation("CrRequestedBy", fields: [requestedByUid], references: [uid])
+  approvedBy  UserDetails? @relation("CrApprovedBy", fields: [approvedByUid], references: [uid], onDelete: Restrict)
+
+  @@index([approvalStatus, requestedAt])
+  @@map("change_request")
+}
+
+/// Automated document request (§4.7). Deliberately NOT a Ticket: no triage, no assignment,
+/// no SLA clock.
+///
+/// deliverToEmail is resolved SERVER-SIDE from the matched client's registered email and is
+/// never accepted from the request body. With no OTP step, that resolution IS the
+/// verification — a caller-supplied address would make the control a no-op.
+model ServiceRequest {
+  id           Int       @id @default(autoincrement())
+  requestNo    String    @unique @default(dbgenerated("((('SRQ-'::text || to_char((CURRENT_DATE)::timestamp with time zone, 'YYYY'::text)) || '-'::text) || lpad((nextval('service_request_no_seq'::regclass))::text, 6, '0'::text))")) @map("request_no")
+  documentType String    @map("document_type") // LEDGER | MARGIN_REPORT | CONTRACT_NOTE
+  /// Mandatory for LEDGER. Enforced by a CHECK constraint in the migration, which Prisma
+  /// cannot express — mirror it in the zod schema so the user gets a field error, not a 500.
+  clientCode   String?   @map("client_code")
+  fromDate     DateTime? @map("from_date")
+  toDate       DateTime? @map("to_date")
+
+  requestedByUid Int    @map("requested_by_uid")
+  forClientUid   Int?   @map("for_client_uid")
+  channel        String
+
+  deliverToEmail String  @map("deliver_to_email")
+  /// Employee-raised requests CC the client, so a document pulled on their account is
+  /// always visible to them (§4.7).
+  ccEmail        String? @map("cc_email")
+
+  /// Which ReportDefinition produced the delivered PDF. Recorded because this flow replaces
+  /// an OTP-verified one: "which query generated the document we emailed" has to be
+  /// answerable long after the fact.
+  reportId String? @map("report_id")
+
+  status        String    @default("PENDING") // PENDING | GENERATED | SENT | FAILED
+  requestedAt   DateTime  @default(now()) @map("requested_at")
+  generatedAt   DateTime? @map("generated_at")
+  deliveredAt   DateTime? @map("delivered_at")
+  failureReason String?   @map("failure_reason")
+
+  createdBy String   @map("created_by")
+  updatedBy String?  @map("updated_by")
+  updatedOn DateTime @default(now()) @updatedAt @map("updated_on")
+
+  requestedBy UserDetails       @relation("SrRequestedBy", fields: [requestedByUid], references: [uid])
+  forClient   UserDetails?      @relation("SrForClient", fields: [forClientUid], references: [uid], onDelete: Restrict)
+  report      ReportDefinition? @relation(fields: [reportId], references: [reportId], onDelete: Restrict)
+  messages    ChannelMessage[]
+
+  @@index([status, requestedAt])
+  @@index([requestedByUid, requestedAt])
+  @@index([clientCode, documentType])
+  @@map("service_request")
+}
+
+/// Outbound queue + inbound log. Not in BRS §6, but Phase 1 cannot be built without it:
+/// §4.2 sends a registration notification, §4.7 emails a PDF, and WhatsApp needs both
+/// directions. Synapse has no delivery infrastructure today (forgot-userid and
+/// reset-password are capture-only), so rows are written QUEUED and nothing transmits until
+/// a provider is wired behind sendMessage().
+///
+/// Both directions share one table, so a ticket's WhatsApp thread is just this table
+/// ordered by createdAt.
+model ChannelMessage {
+  id        Int    @id @default(autoincrement())
+  direction String // INBOUND | OUTBOUND
+  channel   String // EMAIL | SMS | WHATSAPP
+  purpose   String // TICKET_REGISTERED | STATUS_UPDATE | CR_CLOSURE | DOCUMENT_DELIVERY | INBOUND_INTAKE
+
+  ticketId         Int? @map("ticket_id")
+  serviceRequestId Int? @map("service_request_id")
+
+  counterparty String  @map("counterparty") // email address or E.164 mobile
+  ccList       String? @map("cc_list")
+  subject      String?
+  body         String
+
+  /// The provider's own id. Unique is what makes WhatsApp intake idempotent: the Cloud API
+  /// redelivers a webhook on any non-2xx, and without this a slow response creates
+  /// duplicate tickets that then trip our own §4.4 duplicate detection. NULL until sent —
+  /// Postgres permits many NULLs in a unique column, so queued rows do not collide.
+  providerMessageId String? @unique @map("provider_message_id")
+  /// WhatsApp template used when replying outside the 24-hour customer service window.
+  templateName      String? @map("template_name")
+
+  status        String    @default("QUEUED") // QUEUED | SENT | DELIVERED | FAILED | RECEIVED
+  attempts      Int       @default(0)
+  sentAt        DateTime? @map("sent_at")
+  failureReason String?   @map("failure_reason")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  ticket         Ticket?         @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  serviceRequest ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([ticketId, createdAt])
+  @@index([serviceRequestId])
+  @@map("channel_message")
 }

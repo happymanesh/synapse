@@ -5,7 +5,7 @@
       "name": "synapse-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3001,
+      "port": 3010,
       "autoPort": true
     }
   ]

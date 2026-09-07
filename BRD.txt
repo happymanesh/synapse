@@ -27,7 +27,7 @@ sample date 'C00','All Client',1;'C01','B2B Client',1
 
 
 Create table with a sample record:
-1,'Manesh001','<password - see SEED_USER_PASSWORD in .env>','Manesh001','Manesh Anand Mukherjee','<mobile>','<email>','01-Jan-1900','25-Jul-2026','01-Jan-1900','0100','CSO',C00'
+1,'Manesh001','Manesh@1974','Manesh001','Manesh Anand Mukherjee','9892953949','happymanesh@gmail.com','01-Jan-1900','25-Jul-2026','01-Jan-1900','0100','CSO',C00'
 
 IsActive Column everywhere will be same (0-Inactive and 1-Active) whereever the data is fetched it will check for active.
 
@@ -237,6 +237,22 @@ than enable button 'Submit request' and on submitted display message 'Your reque
 
 
 Check the theme color, layout, menu options, its content and way it is presented, All the captions and labelling, comonents need to hide on specific conditions or selections, scalability, performance,etc check the entire project end to end and do the needful correction whereever needed with approval.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ----------------------------------- BTW

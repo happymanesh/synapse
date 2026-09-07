@@ -130,10 +130,30 @@ export default function TopBar({
   return (
     <header className="flex h-14 items-center gap-4 border-b border-chrome-border bg-chrome-background px-4">
       <div className="flex items-center gap-2 font-semibold text-chrome-foreground">
-        {companyLogoUrl && (
-          <Image src={companyLogoUrl} alt={companyName} width={28} height={28} className="rounded-sm object-contain" />
+        {/* The company logo is a wordmark that already carries the name, so it replaces the
+            text rather than sitting beside it. It keeps a white plate because the asset is a
+            JPEG (no transparency) and the chrome turns navy in the night/hybrid themes —
+            without the plate it would read as a white slab. Swap in a transparent PNG and
+            the plate can go.
+            Intrinsic dimensions are passed for the aspect ratio; the height class plus an
+            inline width:auto scales it without tripping Next's aspect-ratio warning. */}
+        {companyLogoUrl ? (
+          <span className="flex items-center rounded-md bg-white px-1.5 py-1">
+            <Image
+              src={companyLogoUrl}
+              alt={companyName}
+              width={249}
+              height={96}
+              priority
+              className="h-7 object-contain"
+              // Inline rather than a `w-auto` class: next/image's dev aspect-ratio check
+              // inspects the inline style attribute, not computed CSS.
+              style={{ width: "auto" }}
+            />
+          </span>
+        ) : (
+          <span className="hidden text-sm sm:inline">{companyName}</span>
         )}
-        <span className="hidden text-sm sm:inline">{companyName}</span>
         <span className="text-chrome-foreground/40">|</span>
         <span className={theme === "day" ? "brand-gradient-text font-extrabold" : "font-extrabold text-brand-teal"}>
           Synapse
