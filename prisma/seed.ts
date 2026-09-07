@@ -14,6 +14,16 @@ const prisma = new PrismaClient({ adapter });
  */
 const SEED_PASSWORD = process.env.SEED_USER_PASSWORD ?? "ChangeMe@2026";
 
+/**
+ * Demo fixtures: the named sample accounts (Manesh001, Client001), the hand-created
+ * `sample_sales` table and the Sales Report/Summary/Entry worked example.
+ *
+ * Set `SEED_DEMO=false` for a production database. Everything a real deployment needs —
+ * company, hierarchies, apps, menus, roles, the issue taxonomy and the ticket reports —
+ * is seeded either way, so production and demo never drift apart into two scripts.
+ */
+const SEED_DEMO = process.env.SEED_DEMO !== "false";
+
 const HIERARCHIES: { seqId: string; name: string; description: string }[] = [
   { seqId: "0000", name: "Management", description: "Company management" },
   { seqId: "0100", name: "CSO", description: "Chief Sales Officer / CSO team" },
@@ -67,28 +77,34 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
 
-  const user = await prisma.userDetails.upsert({
-    where: { username: "Manesh001" },
-    update: {},
-    create: {
-      companyCode: "SIHL",
-      username: "Manesh001",
-      passwordHash,
-      customerId: "Manesh001",
-      fullName: "Manesh Anand Mukherjee",
-      mobile: "9892953949",
-      email: "happymanesh@gmail.com",
-      lastPasswordChangedDate: new Date("1900-01-01"),
-      createdDate: new Date("2026-07-25"),
-      hierarchyCode: "0100",
-      clientCategoryCode: "C00",
-      isActive: true,
-    },
-  });
+  // Named demo accounts exist only in a demo seed. A production database gets the reference
+  // data plus one administrator, and real staff accounts are created in User Master.
+  let demoUserUid: number | null = null;
+  if (SEED_DEMO) {
+    const user = await prisma.userDetails.upsert({
+      where: { username: "Manesh001" },
+      update: {},
+      create: {
+        companyCode: "SIHL",
+        username: "Manesh001",
+        passwordHash,
+        customerId: "Manesh001",
+        fullName: "Manesh Anand Mukherjee",
+        mobile: "9892953949",
+        email: "happymanesh@gmail.com",
+        lastPasswordChangedDate: new Date("1900-01-01"),
+        createdDate: new Date("2026-07-25"),
+        hierarchyCode: "0100",
+        clientCategoryCode: "C00",
+        isActive: true,
+      },
+    });
+    demoUserUid = user.uid;
 
-  const existingHistory = await prisma.passwordHistory.findFirst({ where: { userUid: user.uid } });
-  if (!existingHistory) {
-    await prisma.passwordHistory.create({ data: { userUid: user.uid, passwordHash } });
+    const existingHistory = await prisma.passwordHistory.findFirst({ where: { userUid: user.uid } });
+    if (!existingHistory) {
+      await prisma.passwordHistory.create({ data: { userUid: user.uid, passwordHash } });
+    }
   }
 
   // --- Super admin: hierarchy 9999, user Admin001, ADMIN role + menus + mappings ---
@@ -257,6 +273,9 @@ async function main() {
     create: { userUid: adminUser.uid, roleCode: "ADMIN", isActive: true },
   });
 
+  // The Sales Report worked example is demo-only: it depends on the hand-created
+  // sample_sales table, which a production database has no reason to carry.
+  if (SEED_DEMO) {
   // --- Sample: "Sales Report" — a worked example of the dynamic filter/report
   // engine. sample_sales is a plain, hand-created reporting table (the engine is
   // designed to work against arbitrary tables like this, not just Prisma models).
@@ -819,6 +838,7 @@ async function main() {
       create: { roleCode: "ADMIN", menuCode, companyCode: "SIHL", hierarchyCode: "9999", isActive: true },
     });
   }
+  } // end SEED_DEMO — sales worked example
 
   // --- Issue Tracker & Service Request System, Phase 1 (docs/04-issue-tracker-brs.md) ---
   //
@@ -968,6 +988,7 @@ async function main() {
     });
   }
 
+  if (SEED_DEMO) {
   // A demo client. BRS §3 lists the client as an actor who raises issues and service
   // requests, and §4.7's delivery rules cannot resolve a target at all without one — a staff
   // member requesting a ledger needs a real client record with a registered email to send to
@@ -1021,16 +1042,19 @@ async function main() {
     update: { isActive: true },
     create: { userUid: demoClient.uid, roleCode: "CLIENT_SELF", isActive: true },
   });
+  } // end SEED_DEMO — demo client
 
   // Give Manesh001 the desk role. Without this the three support roles exist but belong to
   // nobody, so there is no way to exercise the module as anyone other than an administrator
   // — and in particular no way to check that §4.6's approval gate actually holds, since ADMIN
   // can approve. This account can propose a change request but must not be able to decide it.
-  await prisma.userRoleMap.upsert({
-    where: { userUid_roleCode: { userUid: user.uid, roleCode: "SUPPORT_DESK" } },
-    update: { isActive: true },
-    create: { userUid: user.uid, roleCode: "SUPPORT_DESK", isActive: true },
-  });
+  if (demoUserUid !== null) {
+    await prisma.userRoleMap.upsert({
+      where: { userUid_roleCode: { userUid: demoUserUid, roleCode: "SUPPORT_DESK" } },
+      update: { isActive: true },
+      create: { userUid: demoUserUid, roleCode: "SUPPORT_DESK", isActive: true },
+    });
+  }
 
   // Provisional taxonomy (§4.3). BRS §11 item 2 leaves the final list to the support lead,
   // who revises it in-app — these are a workable starting set, not a fixed catalogue.
