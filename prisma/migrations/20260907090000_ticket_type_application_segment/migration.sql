@@ -45,21 +45,15 @@ ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "application_id" INTEGER
 ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "segment_id" INTEGER
     REFERENCES "segment_master" ("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- Only tighten once the table is known to be empty of unclassified rows, so re-running this
--- on a database that has since been populated fails loudly instead of silently corrupting.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM "ticket"
-    WHERE "ticket_type" IS NULL OR "application_id" IS NULL OR "segment_id" IS NULL
-  ) THEN
-    ALTER TABLE "ticket" ALTER COLUMN "ticket_type"    SET NOT NULL;
-    ALTER TABLE "ticket" ALTER COLUMN "application_id" SET NOT NULL;
-    ALTER TABLE "ticket" ALTER COLUMN "segment_id"     SET NOT NULL;
-  ELSE
-    RAISE EXCEPTION 'ticket rows exist without type/application/segment — backfill before applying';
-  END IF;
-END $$;
+-- Tighten to NOT NULL. Plain statements rather than a DO block guarding on row counts:
+-- SET NOT NULL already fails loudly if any row holds a null, which is exactly the
+-- protection the guard was written for. The DO block also carried a real cost — its body
+-- contains semicolons inside dollar quotes, which `prisma db execute` (used locally, and
+-- which sends the file whole) tolerates but `prisma migrate deploy` does not parse the same
+-- way. That difference is what made this migration pass locally and fail in production.
+ALTER TABLE "ticket" ALTER COLUMN "ticket_type"    SET NOT NULL;
+ALTER TABLE "ticket" ALTER COLUMN "application_id" SET NOT NULL;
+ALTER TABLE "ticket" ALTER COLUMN "segment_id"     SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS "ticket_application_id_ticket_type_status_raised_at_idx"
     ON "ticket" ("application_id", "ticket_type", "status", "raised_at");

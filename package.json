@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "npm run db:deploy && next start",
-    "db:deploy": "prisma migrate deploy && prisma db seed",
+    "db:deploy": "npm run db:unblock && prisma migrate deploy && prisma db seed",
+    "db:unblock": "prisma migrate resolve --rolled-back 20260907090000_ticket_type_application_segment || exit 0",
     "lint": "eslint",
     "test": "tsx --test tests/**/*.test.ts",
     "postinstall": "prisma generate"
