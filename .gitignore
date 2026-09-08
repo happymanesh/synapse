@@ -29,6 +29,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+# Any stray log, e.g. synapse-dev.log from a captured dev-server run. Broad on purpose:
+# naming one file just means the next one gets committed by accident.
+*.log
 
 # env files (can opt-in for committing if needed)
 .env*
