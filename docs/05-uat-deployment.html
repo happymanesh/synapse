@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SIHL Synapse — UAT Deployment Guide</title>
+<link rel="stylesheet" href="assets/print.css">
+</head>
+<body>
+
+<section class="cover">
+  <div class="cover-band">
+    <div class="product">Shah Investor's Home Limited</div>
+    <h1>UAT Deployment<br>Guide</h1>
+    <div class="sub">SIHL Synapse, including the Issue Tracker &amp; Service Request module</div>
+  </div>
+  <div class="cover-meta">
+    <table>
+      <tr><td>Document</td><td>UAT Deployment Guide</td></tr>
+      <tr><td>System</td><td>SIHL Synapse — one application, one database</td></tr>
+      <tr><td>Scope</td><td>Issue Tracker &amp; Service Request System, BRS Phase 1 (steps 0–8)</td></tr>
+      <tr><td>Repository</td><td>github.com/happymanesh/synapse (private) — one repository, not two</td></tr>
+      <tr><td>Organisation</td><td>Shah Investor's Home Limited (SIHL), SEBI-registered stockbroker</td></tr>
+      <tr><td>Version</td><td>1.0</td></tr>
+      <tr><td>Audience</td><td>UAT deployment team, infrastructure, QA leads</td></tr>
+      <tr><td>Date</td><td>08-Sep-2026</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>What you are deploying</li>
+    <li>Environment variables</li>
+    <li>Deployment steps</li>
+    <li>First login and roles</li>
+    <li>Verification checklist</li>
+    <li>Deliberately incomplete in this release</li>
+    <li>Rolling forward</li>
+    <li>Rollback</li>
+    <li>Traps — read before deploying</li>
+    <li>Reference</li>
+  </ol>
+</section>
+
+<h2 class="new-page">1. What you are deploying</h2>
+
+<p>One Next.js application and one PostgreSQL database. That is the whole system.</p>
+
+<div class="note">
+<strong>One repository, not two.</strong> The Issue Tracker is not a separate application,
+repository or database — it is a module inside Synapse, surfaced as a “Support” app in the
+app switcher. This was a deliberate architectural decision (BRS §10): the design treats the
+Synapse app itself as one of its intake channels, and reads Synapse’s <code>user_details</code>
+master data directly to identify who raised a ticket. Splitting it out would have required an
+API into that data and a second authentication system. Clone one repository, provision one
+database, set one set of variables.
+</div>
+
+<table class="data">
+  <tr><th>Layer</th><th>Choice</th></tr>
+  <tr><td>Framework</td><td>Next.js 16 (App Router, Turbopack)</td></tr>
+  <tr><td>Runtime</td><td>Node.js 20+ (developed on 24.15)</td></tr>
+  <tr><td>Package manager</td><td><b>npm</b> — not pnpm, see §9</td></tr>
+  <tr><td>Database</td><td>PostgreSQL 16</td></tr>
+  <tr><td>ORM</td><td>Prisma 7 with the <code>@prisma/adapter-pg</code> driver adapter</td></tr>
+  <tr><td>Authentication</td><td><code>jose</code> JWT in an httpOnly cookie, 8 hour expiry</td></tr>
+</table>
+
+<h2 class="new-page">2. Environment variables</h2>
+
+<p>Set these on the UAT host. <code>.env</code> is gitignored and intentionally absent from the
+repository — you are creating these values, not copying them from anywhere.</p>
+
+<h3>2.1 Required</h3>
+
+<table class="data">
+  <tr><th class="id">Key</th><th>Format</th><th>Purpose</th></tr>
+  <tr>
+    <td class="id"><code>DATABASE_URL</code></td>
+    <td><code>postgresql://user:pass@host:5432/sihl_synapse_uat</code></td>
+    <td>Main connection. Read by the application, the Prisma CLI and the seed.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>SESSION_SECRET</code></td>
+    <td>64 hexadecimal characters</td>
+    <td>Signs the session JWT. Generate a new one for UAT — do not reuse production’s.</td>
+  </tr>
+</table>
+
+<div class="warn">
+<strong>The application will not start without <code>SESSION_SECRET</code>.</strong> It is read at
+module load in <code>src/lib/session.ts</code> and throws if missing. That is deliberate: a
+missing secret fails loudly at boot rather than silently issuing tokens nobody can verify. If
+the app refuses to start, check this first.
+</div>
+
+<p>Generate one with:</p>
+<pre><code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code></pre>
+
+<h3>2.2 Strongly recommended</h3>
+
+<table class="data">
+  <tr><th class="id">Key</th><th>Value for UAT</th><th>Purpose</th></tr>
+  <tr>
+    <td class="id"><code>TZ</code></td>
+    <td><code>Asia/Kolkata</code></td>
+    <td>Without it the container runs UTC and <b>every timestamp displays 5h30m behind IST</b> —
+      ticket raised times, the audit trail, triage-queue ages. Display only (Postgres stores UTC
+      either way), but for a system whose purpose is measuring turnaround and holding an audit
+      trail, wrong wall-clock times are materially misleading. This never reproduces on an IST
+      developer machine, so it is invisible until deployed.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>SEED_DEMO</code></td>
+    <td><code>false</code></td>
+    <td>Omits the demo fixtures — the sample accounts <code>Manesh001</code>/<code>Client001</code>,
+      the hand-created <code>sample_sales</code> table and the Sales Report worked example. Leave
+      unset only if UAT explicitly wants that sample data.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>DATABASE_URL_READONLY</code></td>
+    <td>connection string for a SELECT-only role</td>
+    <td>Second connection used <b>only</b> to execute administrator-authored report SQL.
+      <code>assertSelectOnly()</code> already rejects non-SELECT statements, but that is an
+      application guard; pointing report execution at a role with no write grants makes the
+      restriction structural. Without this the app falls back to the main connection and
+      <code>REPORT_DB_IS_READONLY</code> reports false.</td>
+  </tr>
+</table>
+
+<h3>2.3 Used by the seed only</h3>
+
+<table class="data">
+  <tr><th class="id">Key</th><th>Purpose</th></tr>
+  <tr>
+    <td class="id"><code>SEED_USER_PASSWORD</code></td>
+    <td>Password for the account the seed creates. Falls back to the placeholder
+      <code>ChangeMe@2026</code> if unset, so a clone of the repository can never contain a working
+      credential. Set this to something disposable for UAT. Must satisfy the password policy:
+      8+ characters, at least one uppercase, one digit, one of <code>!@#$%^&amp;*</code>, and not
+      equal to the username.</td>
+  </tr>
+</table>
+
+<h3>2.4 Set by the platform</h3>
+
+<table class="data">
+  <tr><th class="id">Key</th><th>Notes</th></tr>
+  <tr><td class="id"><code>NODE_ENV</code></td><td><code>production</code>. Most hosts set this. Affects Prisma client caching and the cookie <code>secure</code> flag.</td></tr>
+  <tr><td class="id"><code>PORT</code></td><td>Next.js binds this if present. Managed hosts inject it.</td></tr>
+</table>
+
+<div class="note">
+<strong>Nothing else is read.</strong> The complete list of variables the code touches is
+<code>DATABASE_URL</code>, <code>DATABASE_URL_READONLY</code>, <code>SESSION_SECRET</code>,
+<code>SEED_USER_PASSWORD</code>, <code>SEED_DEMO</code> and <code>NODE_ENV</code>, plus
+<code>TZ</code> which Node reads directly.
+</div>
+
+<h2 class="new-page">3. Deployment steps</h2>
+
+<h3>3.1 One-time database setup</h3>
+
+<p>Create an empty PostgreSQL 16 database. Do not restore anything into it — the migrations
+build the entire schema.</p>
+
+<p>Optionally create the read-only role for the report engine:</p>
+
+<pre><code>CREATE ROLE synapse_ro LOGIN PASSWORD '&lt;password&gt;';
+GRANT CONNECT ON DATABASE sihl_synapse_uat TO synapse_ro;
+GRANT USAGE ON SCHEMA public TO synapse_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO synapse_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO synapse_ro;</code></pre>
+
+<p>Then point <code>DATABASE_URL_READONLY</code> at it.</p>
+
+<h3>3.2 Install and build</h3>
+
+<div class="step"><b>Step 1</b> <code>npm ci</code> — runs <code>prisma generate</code> via the postinstall hook</div>
+<div class="step"><b>Step 2</b> <code>npm run build</code></div>
+
+<p><code>prisma generate</code> must run before <code>next build</code>. If you build in a container
+that prunes development dependencies, make sure it happens after install.</p>
+
+<h3>3.3 Apply the schema</h3>
+
+<div class="step"><b>Step 3</b> <code>npx prisma migrate deploy</code></div>
+
+<p>This applies the 15 committed migration files in order. See §9 — do not use
+<code>prisma migrate dev</code> or <code>prisma db push</code>.</p>
+
+<h3>3.4 Seed reference data</h3>
+
+<div class="step"><b>Step 4</b> <code>npx prisma db seed</code></div>
+
+<p>Creates the company, 10 hierarchies, client categories, the apps (Broking, Back Office,
+Support), the full menu tree, roles (<code>ADMIN</code>, <code>SUPPORT_DESK</code>,
+<code>SUPPORT_LEAD</code>, <code>PRODUCT_OPS</code>), role-to-menu grants, 8 applications and
+7 segments, and the ticket report definitions — plus one <code>ADMIN</code> account using
+<code>SEED_USER_PASSWORD</code>.</p>
+
+<p>The seed is idempotent (upserts throughout) and safe to re-run. It deliberately does not
+touch <code>passwordHash</code> on an existing account, so re-seeding never resets a password
+someone has changed.</p>
+
+<h3>3.5 Start</h3>
+
+<div class="step"><b>Step 5</b> <code>npm run start</code></div>
+
+<p><code>start</code> is wired as <code>npm run db:deploy &amp;&amp; next start</code>, so steps 3 and 4
+run automatically on every start. That is intentional for a single-instance deployment and both
+steps are idempotent.</p>
+
+<div class="warn">
+<strong>If UAT runs more than one instance</strong>, remove <code>db:deploy</code> from the
+<code>start</code> script and run it as a separate release step. Concurrent container starts
+would otherwise race on the same migration.
+</div>
+
+<h2 class="new-page">4. First login and roles</h2>
+
+<p>Sign in at <code>/login</code> as <code>Admin001</code>, using whatever you set
+<code>SEED_USER_PASSWORD</code> to. Then, immediately:</p>
+
+<ol>
+  <li>Change the password — user menu → Settings → Change password.</li>
+  <li>Create real staff accounts in Administration → User Master.</li>
+  <li>Assign roles in Administration → Roles, or via the shield action on a user.</li>
+</ol>
+
+<table class="data">
+  <tr><th class="id">Role</th><th>Can</th></tr>
+  <tr><td class="id"><code>SUPPORT_DESK</code></td><td>Triage, resolve, forward and merge tickets; log tickets for others; <b>propose</b> change requests</td></tr>
+  <tr><td class="id"><code>SUPPORT_LEAD</code></td><td>All of the above, plus maintain the Applications and Segments master lists</td></tr>
+  <tr><td class="id"><code>PRODUCT_OPS</code></td><td><b>Approve or reject</b> change requests and manage the backlog</td></tr>
+  <tr><td class="id"><code>ADMIN</code></td><td>Everything, including all Administration screens</td></tr>
+</table>
+
+<p>The split between proposing and approving a change request is a stated requirement — BRS §4.6:
+the support desk cannot unilaterally park work in the backlog — and is enforced server-side by a
+role check, not by hiding a button.</p>
+
+<div class="warn">
+<strong>Menu grants are filtered by the user’s own hierarchy.</strong> A role granted menus at
+hierarchy <code>0200</code> shows nothing to a user at <code>0100</code>. The seed grants the
+support roles across <code>0000/0100/0200/0300</code>, so assigning a support role to any staff
+user works — but if you add roles by hand, grant them at the hierarchies your users actually
+hold, or they will sign in to an empty app.
+</div>
+
+<h2 class="new-page">5. Verification checklist</h2>
+
+<table class="data">
+  <tr><th class="id">#</th><th>Check</th><th>Expected</th></tr>
+  <tr><td class="id">1</td><td><code>/login</code></td><td>200, SIHL logo and sign-in form render</td></tr>
+  <tr><td class="id">2</td><td>Unauthenticated page, e.g. <code>/support/queue</code></td><td>Redirects to <code>/login</code></td></tr>
+  <tr><td class="id">3</td><td>Unauthenticated API, e.g. <code>/api/notifications</code></td><td><b>401 with a JSON body</b> — not an HTML redirect</td></tr>
+  <tr><td class="id">4</td><td>Sign in</td><td>Dashboard, with Support in the app switcher</td></tr>
+  <tr><td class="id">5</td><td>Raise a Ticket</td><td>Three dropdowns: Type, Application, Segment</td></tr>
+  <tr><td class="id">6</td><td>“Raising at” line</td><td>Shows <b>IST</b>, not UTC — this is the <code>TZ</code> check</td></tr>
+  <tr><td class="id">7</td><td>Select type “Others”</td><td>Reveals the “Please mention the type” field</td></tr>
+  <tr><td class="id">8</td><td>Select “+ Add a new application…”</td><td>Reveals a name field</td></tr>
+  <tr><td class="id">9</td><td>Raise a ticket</td><td>Appears in My Tickets and Triage Queue</td></tr>
+  <tr><td class="id">10</td><td>Ticket detail page</td><td>History panel shows a <code>CREATED</code> event</td></tr>
+  <tr><td class="id">11</td><td>Daily Ticket Stats, Tickets by Application</td><td>Run, and export CSV</td></tr>
+</table>
+
+<h2 class="new-page">6. Deliberately incomplete in this release</h2>
+
+<p>These are known and agreed, not defects. Brief UAT testers so they are not raised as bugs.</p>
+
+<table class="data">
+  <tr><th class="id">Area</th><th>State</th></tr>
+  <tr>
+    <td class="id">Outbound delivery</td>
+    <td><b>Nothing is ever sent.</b> Acknowledgements, change-request closure notices and document
+      deliveries are written to the <code>channel_message</code> table with status
+      <code>QUEUED</code>. Synapse has no email or SMS provider wired, so a raiser will hear
+      nothing.</td>
+  </tr>
+  <tr>
+    <td class="id">Document generation (§4.7)</td>
+    <td>Stubbed. A request is recorded and its delivery address resolved and verified, but no PDF is
+      produced — the ledger, margin-report and contract-note source tables do not exist and no PDF
+      renderer is installed.</td>
+  </tr>
+  <tr>
+    <td class="id">Website intake (§4.1)</td>
+    <td>Not built. There is no public, unauthenticated intake route. Only the Synapse app and
+      staff-logged Phone/WhatsApp entries create tickets.</td>
+  </tr>
+  <tr>
+    <td class="id">WhatsApp intake (§4.1)</td>
+    <td>Parked, pending a centralised WhatsApp system. Requires Meta credentials and a public HTTPS
+      callback.</td>
+  </tr>
+  <tr>
+    <td class="id">Email intake, CEO dashboard, solutions bot</td>
+    <td>Phase 2 and Phase 3 by design (BRS §7).</td>
+  </tr>
+  <tr>
+    <td class="id">Issue taxonomy</td>
+    <td>The 8 applications and 7 segments seeded are provisional and were not signed off by the
+      support lead (BRS §11.2). Both are editable in-app under Support → Applications / Segments.</td>
+  </tr>
+  <tr>
+    <td class="id">Daily morning reminder (§4.5)</td>
+    <td>Surfaces as counters on the Triage Queue rather than a pushed reminder, because pushing
+      depends on delivery being wired.</td>
+  </tr>
+</table>
+
+<h2 class="new-page">7. Rolling forward</h2>
+
+<p>For future releases, pull and then:</p>
+
+<pre><code>npm ci &amp;&amp; npm run build &amp;&amp; npx prisma migrate deploy &amp;&amp; npx prisma db seed</code></pre>
+
+<p>Schema changes in this project use hand-written migration SQL committed under
+<code>prisma/migrations/</code>. <code>migrate deploy</code> applies them in order and never
+inspects the live schema, so it is safe. See §9.</p>
+
+<h2>8. Rollback</h2>
+
+<p>The application is stateless — redeploy the previous commit.</p>
+
+<div class="warn">
+<strong>The database is not.</strong> Migrations here have no down-scripts, so take a database
+snapshot before applying any release that includes new migrations. The practical rollback is:
+restore the snapshot, then redeploy the matching application commit.
+</div>
+
+<h2 class="new-page">9. Traps — read before deploying</h2>
+
+<p>Each of these cost real debugging time. None are guessable from the code.</p>
+
+<div class="warn">
+<strong>1. Never run <code>prisma migrate dev</code> or <code>prisma db push</code>.</strong>
+The database contains <code>sample_sales</code>, a hand-created table that is not a Prisma model.
+Both commands plan to <b>drop it</b> to reconcile drift. Only <code>prisma migrate deploy</code> is
+safe: it applies committed migration files in order and never diffs the live schema.
+</div>
+
+<div class="warn">
+<strong>2. A page that queries the database must not be statically prerendered.</strong>
+<code>next build</code> will try to reach the database at build time, which fails in any
+environment whose build step cannot see it. Every route is already dynamic
+(<code>/login</code> carries an explicit <code>export const dynamic = "force-dynamic"</code>), but
+keep it that way when adding pages. This passes locally, where build and app share one database,
+and fails only in CI or a hosted builder.
+</div>
+
+<div class="warn">
+<strong>3. <code>TZ</code> must be set, or timestamps are 5h30m out.</strong> Invisible on an IST
+developer machine. See §2.2.
+</div>
+
+<div class="warn">
+<strong>4. A raw <code>node-postgres</code> script disagrees with the app about timestamps.</strong>
+<code>pg</code> parses <code>timestamp without time zone</code> as <i>local</i> time; Prisma reads it
+as UTC. The same row therefore reads 5h30m apart depending on which client you use. The app is
+correct — do not “fix” a timestamp based on an ad-hoc <code>psql</code> or <code>pg</code> probe.
+</div>
+
+<div class="note">
+<strong>5. Menu grants are filtered by the user’s hierarchy.</strong> See §4.<br>
+<strong>6. Use npm, not pnpm</strong> — pnpm had approve-builds problems on the original machine.<br>
+<strong>7. After <code>prisma generate</code>, restart the server.</strong> A running process keeps
+the old Prisma client in memory, so new models appear “missing” at runtime while the code
+type-checks fine.
+</div>
+
+<h2 class="new-page">10. Reference</h2>
+
+<table class="data">
+  <tr><th class="id">Document</th><th>Contents</th></tr>
+  <tr><td class="id"><code>REBUILD.md</code></td><td>Full product brief — data model, architecture rules, feature spec, traps</td></tr>
+  <tr><td class="id"><code>CLAUDE.md</code></td><td>Day-to-day conventions: migrations, report SQL, ownership columns, formatting</td></tr>
+  <tr><td class="id"><code>docs/01-business-requirements</code></td><td>Synapse platform BRS</td></tr>
+  <tr><td class="id"><code>docs/02-technical-architecture</code></td><td>Architecture document</td></tr>
+  <tr><td class="id"><code>docs/03-user-guidelines</code></td><td>User guide</td></tr>
+  <tr><td class="id"><code>docs/04-issue-tracker-brs</code></td><td>Issue Tracker BRS — the specification this module implements</td></tr>
+  <tr><td class="id"><code>docs/05-uat-deployment</code></td><td>This document</td></tr>
+</table>
+
+<p>Run <code>npm test</code> for the unit suite — 223 tests, no test-framework dependency
+(<code>node:test</code> via <code>tsx</code>).</p>
+
+</body>
+</html>
