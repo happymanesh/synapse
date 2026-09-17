@@ -20,9 +20,9 @@
       <tr><td>Scope</td><td>Issue Tracker &amp; Service Request System, BRS Phase 1 (steps 0–8)</td></tr>
       <tr><td>Repository</td><td>github.com/happymanesh/synapse (private) — one repository, not two</td></tr>
       <tr><td>Organisation</td><td>Shah Investor's Home Limited (SIHL), SEBI-registered stockbroker</td></tr>
-      <tr><td>Version</td><td>1.0</td></tr>
+      <tr><td>Version</td><td>1.1</td></tr>
       <tr><td>Audience</td><td>UAT deployment team, infrastructure, QA leads</td></tr>
-      <tr><td>Date</td><td>08-Sep-2026</td></tr>
+      <tr><td>Date</td><td>17-Sep-2026</td></tr>
     </table>
   </div>
 </section>
@@ -129,7 +129,55 @@ the app refuses to start, check this first.
   </tr>
 </table>
 
-<h3>2.3 Used by the seed only</h3>
+<h3>2.3 Outbound email — optional, and off unless all of it is set</h3>
+
+<p>One email exists in this release: the notice sent to a member of staff when a ticket is
+<b>forwarded</b> to them. Nothing else sends — see §6.</p>
+
+<table class="data">
+  <tr><th class="id">Key</th><th>Value</th><th>Purpose</th></tr>
+  <tr>
+    <td class="id"><code>MAIL_DRIVER</code></td>
+    <td><code>sendgrid</code></td>
+    <td><b>The switch.</b> Anything else — including unset — means no email is sent.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>SENDGRID_API_KEY</code></td>
+    <td><code>SG.…</code></td>
+    <td>SendGrid API key with Mail Send permission.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>MAIL_FROM</code></td>
+    <td>e.g. <code>no-reply@sihl.com</code></td>
+    <td>Sender address. <b>Must be a verified sender or domain in the SendGrid account</b>, or
+      SendGrid rejects every message with a 403.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>MAIL_FROM_NAME</code></td>
+    <td><code>SIHL Synapse</code></td>
+    <td>Display name. Defaults to <code>SIHL Synapse</code>.</td>
+  </tr>
+  <tr>
+    <td class="id"><code>MAIL_APP_URL</code></td>
+    <td><code>https://&lt;uat-host&gt;</code></td>
+    <td>Base URL for the “Open ticket” link in the email. Defaults to
+      <code>http://localhost:3010</code>, which is useless in a deployed environment —
+      <b>set it, or every email links back to nowhere.</b></td>
+  </tr>
+</table>
+
+<p>Leaving these unset is a supported state, not a broken one. Forwarding still works; the attempt
+is recorded in <code>channel_message</code> as <code>TICKET_FORWARDED … [FAILED] No mailer
+configured (MAIL_DRIVER=noop)</code>, and a <code>NOTIFICATION</code> event on the ticket tells the
+forwarding staff member to pass the message on by hand.</p>
+
+<div class="note">
+The no-op driver deliberately reports <strong>failure</strong> rather than success. A system that
+claims to have emailed someone when nothing left the building is worse than one that admits it,
+because the recipient waits for something that is never coming.
+</div>
+
+<h3>2.4 Used by the seed only</h3>
 
 <table class="data">
   <tr><th class="id">Key</th><th>Purpose</th></tr>
@@ -138,12 +186,12 @@ the app refuses to start, check this first.
     <td>Password for the account the seed creates. Falls back to the placeholder
       <code>ChangeMe@2026</code> if unset, so a clone of the repository can never contain a working
       credential. Set this to something disposable for UAT. Must satisfy the password policy:
-      8+ characters, at least one uppercase, one digit, one of <code>!@#$%^&amp;*</code>, and not
-      equal to the username.</td>
+      8+ characters, at least one uppercase, one digit, one of <code>!@#$%^&amp;*</code>, not
+      equal to the username, and at most 72 bytes.</td>
   </tr>
 </table>
 
-<h3>2.4 Set by the platform</h3>
+<h3>2.5 Set by the platform</h3>
 
 <table class="data">
   <tr><th class="id">Key</th><th>Notes</th></tr>
@@ -154,8 +202,10 @@ the app refuses to start, check this first.
 <div class="note">
 <strong>Nothing else is read.</strong> The complete list of variables the code touches is
 <code>DATABASE_URL</code>, <code>DATABASE_URL_READONLY</code>, <code>SESSION_SECRET</code>,
-<code>SEED_USER_PASSWORD</code>, <code>SEED_DEMO</code> and <code>NODE_ENV</code>, plus
-<code>TZ</code> which Node reads directly.
+<code>SEED_USER_PASSWORD</code>, <code>SEED_DEMO</code>, <code>MAIL_DRIVER</code>,
+<code>SENDGRID_API_KEY</code>, <code>MAIL_FROM</code>, <code>MAIL_FROM_NAME</code>,
+<code>MAIL_APP_URL</code> and <code>NODE_ENV</code>, plus <code>TZ</code> which Node reads
+directly.
 </div>
 
 <h2 class="new-page">3. Deployment steps</h2>
@@ -224,7 +274,9 @@ would otherwise race on the same migration.
 <code>SEED_USER_PASSWORD</code> to. Then, immediately:</p>
 
 <ol>
-  <li>Change the password — user menu → Settings → Change password.</li>
+  <li>Change the password — click your name (top right) → Settings → Change password. It asks for
+    the current password as well as the new one; a session alone is not enough to change it. The
+    new password must meet the policy in §2 and must not repeat any of the last 3.</li>
   <li>Create real staff accounts in Administration → User Master.</li>
   <li>Assign roles in Administration → Roles, or via the shield action on a user.</li>
 </ol>
@@ -264,6 +316,8 @@ hold, or they will sign in to an empty app.
   <tr><td class="id">9</td><td>Raise a ticket</td><td>Appears in My Tickets and Triage Queue</td></tr>
   <tr><td class="id">10</td><td>Ticket detail page</td><td>History panel shows a <code>CREATED</code> event</td></tr>
   <tr><td class="id">11</td><td>Daily Ticket Stats, Tickets by Application</td><td>Run, and export CSV</td></tr>
+  <tr><td class="id">12</td><td>Change password (your name → Settings)</td><td>Dialog opens; a deliberately wrong current password is refused with “Your current password is not correct.”</td></tr>
+  <tr><td class="id">13</td><td>Forward a ticket to another user</td><td>Ticket is reassigned and a <code>FORWARDED</code> event appears. <b>With</b> the mail variables set, the recipient receives an email whose “Open ticket” link resolves on the UAT host. <b>Without</b> them, the ticket instead carries a <code>NOTIFICATION</code> event saying the email could not be sent — that is the expected state</td></tr>
 </table>
 
 <h2 class="new-page">6. Deliberately incomplete in this release</h2>
@@ -274,10 +328,12 @@ hold, or they will sign in to an empty app.
   <tr><th class="id">Area</th><th>State</th></tr>
   <tr>
     <td class="id">Outbound delivery</td>
-    <td><b>Nothing is ever sent.</b> Acknowledgements, change-request closure notices and document
-      deliveries are written to the <code>channel_message</code> table with status
-      <code>QUEUED</code>. Synapse has no email or SMS provider wired, so a raiser will hear
-      nothing.</td>
+    <td><b>One email exists: the ticket-forwarded notice to the staff member it was forwarded
+      to</b>, and only when the mail variables in §2.3 are set. Everything a <i>raiser</i> would
+      receive — acknowledgements, resolution notices, change-request closure notices, document
+      deliveries — is still only written to <code>channel_message</code> with status
+      <code>QUEUED</code> and never sent, so <b>a raiser will hear nothing</b>. No SMS or WhatsApp
+      provider is wired at all.</td>
   </tr>
   <tr>
     <td class="id">Document generation (§4.7)</td>
@@ -371,6 +427,16 @@ the old Prisma client in memory, so new models appear “missing” at runtime w
 type-checks fine.
 </div>
 
+<div class="warn">
+<strong>8. Mail variables are read at send time, on the app service, and fail quietly by
+design.</strong> Three ways this goes wrong without an error anywhere: they are set on the
+<i>database</i> service instead of the app; a bulk or raw variable editor is filled in but never
+saved; or <code>MAIL_FROM</code> is an address the SendGrid account has not verified. In all three
+cases forwarding still succeeds and the app looks healthy — the only evidence is a
+<code>[FAILED]</code> row in <code>channel_message</code>. If email is expected in UAT, forward one
+ticket deliberately and read that table before believing it works.
+</div>
+
 <h2 class="new-page">10. Reference</h2>
 
 <table class="data">
@@ -384,7 +450,7 @@ type-checks fine.
   <tr><td class="id"><code>docs/05-uat-deployment</code></td><td>This document</td></tr>
 </table>
 
-<p>Run <code>npm test</code> for the unit suite — 223 tests, no test-framework dependency
+<p>Run <code>npm test</code> for the unit suite — 259 tests, no test-framework dependency
 (<code>node:test</code> via <code>tsx</code>).</p>
 
 </body>

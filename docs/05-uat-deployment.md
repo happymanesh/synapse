@@ -3,7 +3,7 @@
 **Applies to:** Synapse platform including the Issue Tracker & Service Request module (BRS
 Phase 1, steps 0–8).
 **Repository:** `https://github.com/happymanesh/synapse` (private) — **one repository, not two.**
-**Last updated:** 08-Sep-2026
+**Last updated:** 17-Sep-2026
 
 ---
 
@@ -59,11 +59,31 @@ Generate one with:
 | `SEED_DEMO` | `false` | Omits the demo fixtures — the sample accounts `Manesh001`/`Client001`, the hand-created `sample_sales` table and the Sales Report/Summary/Entry worked example. Leave unset (or `true`) only if UAT explicitly wants that sample data. |
 | `DATABASE_URL_READONLY` | connection string for a SELECT-only role | Second connection used **only** to execute administrator-authored report SQL. `assertSelectOnly()` already rejects non-SELECT statements, but that is an application guard; pointing report execution at a role with no write grants makes it structural. Without this the app falls back to the main connection and `REPORT_DB_IS_READONLY` reports `false`. |
 
+### Outbound email — optional, and off unless all of it is set
+
+One email exists in this release: the notice sent to a member of staff when a ticket is
+**forwarded** to them. Nothing else sends (see §6).
+
+| Key | Value | Purpose |
+|---|---|---|
+| `MAIL_DRIVER` | `sendgrid` | **The switch.** Anything else — including unset — means no email is sent. |
+| `SENDGRID_API_KEY` | `SG.…` | SendGrid API key with Mail Send permission. |
+| `MAIL_FROM` | e.g. `no-reply@sihl.com` | Sender address. **Must be a verified sender or domain in the SendGrid account**, or SendGrid rejects every message with a 403. |
+| `MAIL_FROM_NAME` | `SIHL Synapse` | Display name. Defaults to `SIHL Synapse`. |
+| `MAIL_APP_URL` | `https://<uat-host>` | Base URL for the "Open ticket" link in the email. Defaults to `http://localhost:3010`, which is useless in a deployed environment — **set it, or every email links back to nowhere.** |
+
+Leaving these unset is a supported state, not a broken one. Forwarding still works; the
+attempt is recorded in `channel_message` as `TICKET_FORWARDED … [FAILED] No mailer configured
+(MAIL_DRIVER=noop)` and a `NOTIFICATION` event on the ticket tells the forwarding staff member
+to pass the message on by hand. The no-op driver deliberately reports **failure** rather than
+success: a system that claims to have emailed someone when nothing left the building is worse
+than one that admits it, because the recipient waits for something that is never coming.
+
 ### Used by the seed only
 
 | Key | Purpose |
 |---|---|
-| `SEED_USER_PASSWORD` | Password for the account(s) the seed creates. Falls back to the placeholder `ChangeMe@2026` if unset, so a clone can never contain a working credential. **Set this to something disposable for UAT.** Must satisfy the password policy: 8+ characters, at least one uppercase, one digit, and one of `!@#$%^&*`, and not equal to the username. |
+| `SEED_USER_PASSWORD` | Password for the account(s) the seed creates. Falls back to the placeholder `ChangeMe@2026` if unset, so a clone can never contain a working credential. **Set this to something disposable for UAT.** Must satisfy the password policy: 8+ characters, at least one uppercase, one digit, one of `!@#$%^&*`, not equal to the username, and at most 72 bytes. |
 
 ### Set by the platform
 
@@ -74,7 +94,7 @@ Generate one with:
 
 **Nothing else is read.** The full list of variables the code touches is exactly:
 `DATABASE_URL`, `DATABASE_URL_READONLY`, `SESSION_SECRET`, `SEED_USER_PASSWORD`, `SEED_DEMO`,
-`NODE_ENV`.
+`MAIL_DRIVER`, `SENDGRID_API_KEY`, `MAIL_FROM`, `MAIL_FROM_NAME`, `MAIL_APP_URL`, `NODE_ENV`.
 
 ---
 
@@ -141,7 +161,9 @@ Sign in at `/login` with the username `Admin001` and whatever you set `SEED_USER
 
 Immediately afterwards:
 
-1. **Change the password** — user menu → Settings → Change password.
+1. **Change the password** — click your name (top right) → Settings → Change password. It asks
+   for the current password as well as the new one; a session alone is not enough to change it.
+   The new password must meet the policy in §2 and must not repeat any of the last 3.
 2. Create real staff accounts in **Administration → User Master**.
 3. Assign roles in **Administration → Roles**, or via the 🛡️ action on a user.
 
@@ -181,6 +203,12 @@ After deploying, confirm:
 - [ ] A raised ticket appears in **My Tickets** and **Triage Queue**
 - [ ] The ticket detail page shows the History panel with a `CREATED` event
 - [ ] **Daily Ticket Stats** and **Tickets by Application** run and export CSV
+- [ ] **Change password** (your name → Settings) opens a dialog; a deliberately wrong current
+      password is refused with *"Your current password is not correct."*
+- [ ] Forwarding a ticket to another user assigns it and adds a `FORWARDED` event — and, **if
+      the mail variables are set**, the recipient receives an email whose "Open ticket" link
+      resolves on the UAT host. If they are not set, confirm the ticket instead carries a
+      `NOTIFICATION` event saying the email could not be sent; that is the expected state
 
 ---
 
@@ -190,7 +218,7 @@ These are known and agreed, not defects. Tell UAT testers so they do not raise t
 
 | Area | State |
 |---|---|
-| **Outbound delivery** | **Nothing is ever sent.** Acknowledgements, change-request closure notices and document deliveries are written to the `channel_message` table with status `QUEUED`. Synapse has no email or SMS provider wired. A raiser will hear nothing. |
+| **Outbound delivery** | **One email exists: the ticket-forwarded notice to the staff member it was forwarded to**, and only when the mail variables in §2 are set. Everything a *raiser* would receive — acknowledgements, resolution notices, change-request closure notices, document deliveries — is still only written to `channel_message` with status `QUEUED` and never sent. **A raiser will hear nothing.** No SMS or WhatsApp provider is wired at all. |
 | **Document generation (§4.7)** | Stubbed. A request is recorded and its delivery address resolved and verified, but no PDF is produced — the ledger/margin/contract-note source tables do not exist and no PDF renderer is installed. |
 | **Website intake (§4.1)** | Not built. There is no public, unauthenticated intake route. Only the Synapse app and staff-logged Phone/WhatsApp entries create tickets. |
 | **WhatsApp intake (§4.1)** | Parked, pending a centralised WhatsApp system. Requires Meta credentials and a public HTTPS callback. |
@@ -252,6 +280,14 @@ Do not "fix" a timestamp based on an ad-hoc `psql`/`pg` probe.
 **7. After `prisma generate`, restart the server.** A running process keeps the old Prisma
 client in memory, so new models appear "missing" at runtime while the code type-checks fine.
 
+**8. Mail variables are read at send time, on the app service, and fail quietly by design.**
+Three ways this goes wrong without an error anywhere: they get set on the *database* service
+instead of the app; a bulk/raw variable editor is filled in but never saved; or `MAIL_FROM` is
+an address the SendGrid account has not verified. In all three cases forwarding still succeeds
+and the app looks healthy — the only evidence is a `[FAILED]` row in `channel_message`. If
+email is expected in UAT, forward one ticket deliberately and read that table before believing
+it works.
+
 ---
 
 ## 10. Reference
@@ -265,4 +301,4 @@ client in memory, so new models appear "missing" at runtime while the code type-
 | `docs/03-user-guidelines.*` | User guide |
 | `docs/04-issue-tracker-brs.*` | Issue Tracker BRS — the spec this module implements |
 
-Run `npm test` for the unit suite (223 tests, no framework dependency — `node:test` via `tsx`).
+Run `npm test` for the unit suite (259 tests, no framework dependency — `node:test` via `tsx`).
