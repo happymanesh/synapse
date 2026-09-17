@@ -45,3 +45,6 @@ next-env.d.ts
 
 # prisma generated client
 /generated/prisma
+
+# Database dumps — contain password hashes and personal data. Never commit.
+backups/
