@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LANGUAGES, useLanguage, type LanguageCode } from "@/lib/i18n";
 import NotificationBell from "./NotificationBell";
+import ChangePasswordModal from "./ChangePasswordModal";
 import AppSwitcher, { type AppEntry } from "./AppSwitcher";
 import { useMenuUsage } from "./menu-usage";
 
@@ -61,6 +62,7 @@ export default function TopBar({
   const { t } = useLanguage();
   const { logSelection } = useMenuUsage();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [profileView, setProfileView] = useState<"menu" | "profile" | "settings">("menu");
   const [searchFocused, setSearchFocused] = useState(false);
 
@@ -356,6 +358,12 @@ export default function TopBar({
 
                   <button
                     type="button"
+                    onClick={() => {
+                      // The dropdown closes with it: the dialog is modal, and leaving the
+                      // menu open behind the overlay makes Escape ambiguous.
+                      setProfileOpen(false);
+                      setChangePasswordOpen(true);
+                    }}
                     className="w-full rounded-md border border-chrome-border px-2 py-1.5 text-xs text-chrome-foreground hover:bg-chrome-surface"
                   >
                     {t("changePassword")}
@@ -366,6 +374,10 @@ export default function TopBar({
           )}
         </div>
       </div>
+
+      {/* Outside the dropdown, so closing the menu does not unmount the dialog. Mounted only
+          while open, so each visit starts with empty fields rather than a stale password. */}
+      {changePasswordOpen && <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />}
     </header>
   );
 }
