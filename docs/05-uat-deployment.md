@@ -72,6 +72,23 @@ One email exists in this release: the notice sent to a member of staff when a ti
 | `MAIL_FROM_NAME` | `SIHL Synapse` | Display name. Defaults to `SIHL Synapse`. |
 | `MAIL_APP_URL` | `https://<uat-host>` | Base URL for the "Open ticket" link in the email. Defaults to `http://localhost:3010`, which is useless in a deployed environment — **set it, or every email links back to nowhere.** |
 
+**The sending host's IP must be on SendGrid's allowlist.** The SIHL SendGrid account has IP
+Access Management switched on, so it refuses API calls from any address not on its list — the
+call is rejected at authentication, before the message or the recipient is ever considered.
+SIHL's own UAT and production server IPs are already whitelisted, so a deployment onto those
+hosts needs nothing further. **Any other host does**: a cloud deployment (this module was
+trialled on Railway, refused at `152.55.177.219`), a new server, or a changed egress IP will
+be blocked until the address is added under Settings → IP Access Management.
+
+Before believing email works from a new host, ask SendGrid directly — it answers without
+sending anything:
+
+    curl -s -o /dev/null -w "%{http_code}\n" \
+      -H "Authorization: Bearer $SENDGRID_API_KEY" https://api.sendgrid.com/v3/scopes
+
+`200` means the host is allowed. `403 The requestor's IP Address is not whitelisted` means it
+is not, and no email will ever leave, whatever the app reports.
+
 Leaving these unset is a supported state, not a broken one. Forwarding still works; the
 attempt is recorded in `channel_message` as `TICKET_FORWARDED … [FAILED] No mailer configured
 (MAIL_DRIVER=noop)` and a `NOTIFICATION` event on the ticket tells the forwarding staff member
@@ -280,13 +297,15 @@ Do not "fix" a timestamp based on an ad-hoc `psql`/`pg` probe.
 **7. After `prisma generate`, restart the server.** A running process keeps the old Prisma
 client in memory, so new models appear "missing" at runtime while the code type-checks fine.
 
-**8. Mail variables are read at send time, on the app service, and fail quietly by design.**
-Three ways this goes wrong without an error anywhere: they get set on the *database* service
-instead of the app; a bulk/raw variable editor is filled in but never saved; or `MAIL_FROM` is
-an address the SendGrid account has not verified. In all three cases forwarding still succeeds
-and the app looks healthy — the only evidence is a `[FAILED]` row in `channel_message`. If
-email is expected in UAT, forward one ticket deliberately and read that table before believing
-it works.
+**8. Mail fails quietly by design, in four different ways.** The variables get set on the
+*database* service instead of the app; a bulk or raw variable editor is filled in but never
+saved; `MAIL_FROM` is an address the SendGrid account has not verified; or **the host's IP is
+not on SendGrid's allowlist**. In every case forwarding still succeeds and the app looks
+healthy — the only evidence is a `[FAILED]` row in `channel_message` and a `NOTIFICATION`
+event on the ticket. All four have now happened at least once during this project, the last
+two on the first real attempt to send. If email is expected, run the `/v3/scopes` check in
+§2.3 from the deployment host, then forward one ticket deliberately and read
+`channel_message` before believing it works.
 
 ---
 

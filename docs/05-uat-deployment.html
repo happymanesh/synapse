@@ -20,7 +20,7 @@
       <tr><td>Scope</td><td>Issue Tracker &amp; Service Request System, BRS Phase 1 (steps 0–8)</td></tr>
       <tr><td>Repository</td><td>github.com/happymanesh/synapse (private) — one repository, not two</td></tr>
       <tr><td>Organisation</td><td>Shah Investor's Home Limited (SIHL), SEBI-registered stockbroker</td></tr>
-      <tr><td>Version</td><td>1.1</td></tr>
+      <tr><td>Version</td><td>1.2</td></tr>
       <tr><td>Audience</td><td>UAT deployment team, infrastructure, QA leads</td></tr>
       <tr><td>Date</td><td>17-Sep-2026</td></tr>
     </table>
@@ -165,6 +165,25 @@ the app refuses to start, check this first.
       <b>set it, or every email links back to nowhere.</b></td>
   </tr>
 </table>
+
+<div class="warn">
+<strong>The sending host's IP must be on SendGrid's allowlist.</strong> The SIHL SendGrid account
+has IP Access Management switched on, so it refuses API calls from any address not on its list —
+rejected at authentication, before the message or the recipient is ever considered. SIHL's own UAT
+and production server IPs are already whitelisted, so a deployment onto those hosts needs nothing
+further. <b>Any other host does</b>: a cloud deployment (this module was trialled on Railway,
+refused at <code>152.55.177.219</code>), a new server, or a changed egress IP is blocked until the
+address is added under Settings → IP Access Management.
+</div>
+
+<p>Before believing email works from a new host, ask SendGrid directly — it answers without
+sending anything:</p>
+
+<pre><code>curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Authorization: Bearer $SENDGRID_API_KEY" https://api.sendgrid.com/v3/scopes</code></pre>
+
+<p><code>200</code> means the host is allowed. <code>403 The requestor's IP Address is not
+whitelisted</code> means it is not, and no email will ever leave, whatever the app reports.</p>
 
 <p>Leaving these unset is a supported state, not a broken one. Forwarding still works; the attempt
 is recorded in <code>channel_message</code> as <code>TICKET_FORWARDED … [FAILED] No mailer
@@ -428,13 +447,15 @@ type-checks fine.
 </div>
 
 <div class="warn">
-<strong>8. Mail variables are read at send time, on the app service, and fail quietly by
-design.</strong> Three ways this goes wrong without an error anywhere: they are set on the
-<i>database</i> service instead of the app; a bulk or raw variable editor is filled in but never
-saved; or <code>MAIL_FROM</code> is an address the SendGrid account has not verified. In all three
-cases forwarding still succeeds and the app looks healthy — the only evidence is a
-<code>[FAILED]</code> row in <code>channel_message</code>. If email is expected in UAT, forward one
-ticket deliberately and read that table before believing it works.
+<strong>8. Mail fails quietly by design, in four different ways.</strong> The variables are set on
+the <i>database</i> service instead of the app; a bulk or raw variable editor is filled in but
+never saved; <code>MAIL_FROM</code> is an address the SendGrid account has not verified; or
+<b>the host's IP is not on SendGrid's allowlist</b>. In every case forwarding still succeeds and
+the app looks healthy — the only evidence is a <code>[FAILED]</code> row in
+<code>channel_message</code> and a <code>NOTIFICATION</code> event on the ticket. All four have
+now happened at least once during this project, the last two on the first real attempt to send.
+If email is expected, run the <code>/v3/scopes</code> check in §2.3 from the deployment host, then
+forward one ticket deliberately and read <code>channel_message</code> before believing it works.
 </div>
 
 <h2 class="new-page">10. Reference</h2>
