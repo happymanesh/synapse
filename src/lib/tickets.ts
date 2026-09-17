@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { hasMenuAccess } from "@/lib/auth";
 import { NEW_OPTION_SENTINEL } from "@/lib/ticket-schemas";
 import { checkAttachment } from "@/lib/attachment-core";
+import { getMailer, mailConfig } from "@/lib/mail/mailer";
+import { ticketForwardedEmail } from "@/lib/mail/ticket-forwarded.template";
 import { SUPPORT_MENU } from "@/lib/support-schemas";
 import {
   resolveRaiser,
@@ -16,6 +18,8 @@ import {
   timestampsForTransition,
   DUPLICATE_WINDOW_HOURS,
   OPEN_STATUSES,
+  RESPONSE_TARGET_HOURS,
+  describeTicketType,
   type MasterUserRow,
   type ResolvedRaiser,
   type TicketLike,
@@ -653,7 +657,9 @@ export type TicketAction =
  * written together, so the trail can never disagree with the row it describes.
  */
 export async function applyTicketAction(ticketId: number, action: TicketAction, actor: ActorContext) {
-  return prisma.$transaction(async (tx) => {
+  let forwardedTo: { uid: number; username: string; email: string | null; fullName: string } | null = null;
+
+  const result = await prisma.$transaction(async (tx) => {
     const ticket = await tx.ticket.findUnique({ where: { id: ticketId }, select: TICKET_DETAIL_SELECT });
     if (!ticket) throw new Error("Ticket not found.");
     if (ticket.mergedIntoTicketId !== null) {
@@ -699,9 +705,11 @@ export async function applyTicketAction(ticketId: number, action: TicketAction, 
       case "FORWARD": {
         const to = await tx.userDetails.findUnique({
           where: { uid: action.toUserUid },
-          select: { uid: true, username: true, isActive: true },
+          select: { uid: true, username: true, isActive: true, email: true, fullName: true },
         });
         if (!to || !to.isActive) throw new Error("That person is not an active user.");
+        // Captured for the notification, which is sent AFTER this transaction commits.
+        forwardedTo = to;
 
         const from = ticket.assignedToUid
           ? await tx.userDetails.findUnique({ where: { uid: ticket.assignedToUid }, select: { username: true } })
@@ -730,6 +738,119 @@ export async function applyTicketAction(ticketId: number, action: TicketAction, 
     await tx.ticketEvent.create({ data: event as Parameters<typeof tx.ticketEvent.create>[0]["data"] });
     return { ok: true };
   });
+
+  // Sent after the commit, never inside it. Holding a database transaction open across an
+  // HTTP call to a third party is how a slow provider becomes a database problem — and a
+  // mail failure must not roll back a forward that has already been agreed.
+  if (forwardedTo && action.kind === "FORWARD") {
+    await notifyForward(ticketId, forwardedTo, action.remarks, actor);
+  }
+
+  return result;
+}
+
+/**
+ * Tells the new assignee a ticket is theirs (§4.5).
+ *
+ * Every failure path is swallowed: the forward has already happened and is recorded in the
+ * audit trail, so a desk must not be unable to hand work over because a mail provider is
+ * down. What happened is recorded either way — as a channel_message row, and as a
+ * NOTIFICATION event when it could not be sent, so the trail shows the gap rather than
+ * implying an email that never arrived.
+ */
+async function notifyForward(
+  ticketId: number,
+  to: { uid: number; username: string; email: string | null; fullName: string },
+  reason: string,
+  actor: ActorContext
+): Promise<void> {
+  try {
+    if (!to.email) {
+      await prisma.ticketEvent.create({
+        data: {
+          ticketId,
+          eventType: "NOTIFICATION",
+          remarks: `No email sent: ${to.username} has no email address on file. Tell them by hand.`,
+          actorUid: actor.uid,
+          actorUsername: actor.username,
+        },
+      });
+      return;
+    }
+
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        ticketNo: true,
+        subject: true,
+        ticketType: true,
+        typeOther: true,
+        raisedAt: true,
+        slaClockStartAt: true,
+        guestName: true,
+        clientCode: true,
+        application: { select: { name: true } },
+        segment: { select: { name: true } },
+        raiser: { select: { fullName: true } },
+      },
+    });
+    if (!ticket) return;
+
+    const config = mailConfig();
+    const raisedBy = ticket.raiser?.fullName ?? (ticket.guestName ? `${ticket.guestName} (guest)` : "Guest");
+
+    const rendered = ticketForwardedEmail({
+      recipientName: to.fullName.split(" ")[0] || to.fullName,
+      ticketNo: ticket.ticketNo,
+      subject: ticket.subject,
+      ticketType: describeTicketType(ticket.ticketType, ticket.typeOther),
+      application: ticket.application.name,
+      segment: ticket.segment.name,
+      raisedBy: ticket.clientCode ? `${raisedBy} (${ticket.clientCode})` : raisedBy,
+      raisedAt: ticket.raisedAt,
+      clockStartedAt: ticket.slaClockStartAt,
+      forwardedBy: actor.username,
+      reason,
+      ticketUrl: `${config.appUrl.replace(/\/+$/, "")}/support/tickets/${ticketId}`,
+      when: new Date(),
+      responseTargetHours: RESPONSE_TARGET_HOURS,
+      productName: config.fromName,
+    });
+
+    const sent = await getMailer(config).send({ to: to.email, ...rendered });
+
+    await prisma.channelMessage.create({
+      data: {
+        direction: "OUTBOUND",
+        channel: "EMAIL",
+        purpose: "TICKET_FORWARDED",
+        ticketId,
+        counterparty: to.email,
+        subject: rendered.subject,
+        body: rendered.text,
+        providerMessageId: sent.providerMessageId,
+        status: sent.accepted ? "SENT" : "FAILED",
+        sentAt: sent.accepted ? new Date() : null,
+        failureReason: sent.failureReason,
+        attempts: 1,
+      },
+    });
+
+    if (!sent.accepted) {
+      await prisma.ticketEvent.create({
+        data: {
+          ticketId,
+          eventType: "NOTIFICATION",
+          remarks: `Could not email ${to.username}: ${sent.failureReason ?? "unknown error"}. Tell them by hand.`,
+          actorUid: actor.uid,
+          actorUsername: actor.username,
+        },
+      });
+    }
+  } catch (err) {
+    // The forward stands regardless.
+    console.error("[mail] forward notification failed:", err instanceof Error ? err.message : err);
+  }
 }
 
 /**
