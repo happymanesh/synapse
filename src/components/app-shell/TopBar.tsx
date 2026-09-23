@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LANGUAGES, useLanguage, type LanguageCode } from "@/lib/i18n";
 import NotificationBell from "./NotificationBell";
+import ChatHubBell from "./ChatHubBell";
 import ChangePasswordModal from "./ChangePasswordModal";
 import AppSwitcher, { type AppEntry } from "./AppSwitcher";
 import { useMenuUsage } from "./menu-usage";
@@ -226,6 +227,8 @@ export default function TopBar({
         </button>
 
         <NotificationBell />
+
+        <ChatHubBell />
 
         <AppSwitcher apps={apps} activeAppCode={activeApp?.code ?? null} newWindow={newWindow} />
 

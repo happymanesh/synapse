@@ -33,6 +33,10 @@ export type TranslationKey =
   | "noMatches"
   | "notifications"
   | "noNotifications"
+  // Synapse TopBar agent access point (chat-hub integration) - translations below are
+  // best-effort, not reviewed by a native speaker for the non-English languages.
+  | "chatRequests"
+  | "noChatRequests"
   | "actions"
   | "nothingToAssign"
   | "passwordUpdated"
@@ -93,6 +97,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "No matching menu items.",
     notifications: "Notifications",
     noNotifications: "No notifications",
+    chatRequests: "Chat requests",
+    noChatRequests: "No chat requests",
     searchRecords: "Search…",
     allCompanies: "All companies",
     actions: "Actions",
@@ -152,6 +158,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "कोई मिलान मेनू आइटम नहीं।",
     notifications: "सूचनाएं",
     noNotifications: "कोई सूचना नहीं",
+    chatRequests: "चैट अनुरोध",
+    noChatRequests: "कोई चैट अनुरोध नहीं",
     searchRecords: "खोजें…",
     allCompanies: "सभी कंपनियां",
     actions: "कार्रवाई",
@@ -211,6 +219,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "जुळणारे मेनू आयटम नाहीत.",
     notifications: "सूचना",
     noNotifications: "सूचना नाहीत",
+    chatRequests: "चॅट विनंत्या",
+    noChatRequests: "चॅट विनंत्या नाहीत",
     searchRecords: "शोधा…",
     allCompanies: "सर्व कंपन्या",
     actions: "क्रिया",
@@ -270,6 +280,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "કોઈ મેળ ખાતી મેનૂ આઇટમ નથી.",
     notifications: "સૂચનાઓ",
     noNotifications: "કોઈ સૂચનાઓ નથી",
+    chatRequests: "ચેટ વિનંતીઓ",
+    noChatRequests: "કોઈ ચેટ વિનંતી નથી",
     searchRecords: "શોધો…",
     allCompanies: "બધી કંપનીઓ",
     actions: "ક્રિયાઓ",
@@ -329,6 +341,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "ਕੋਈ ਮੇਲ ਖਾਂਦਾ ਮੀਨੂ ਆਈਟਮ ਨਹੀਂ।",
     notifications: "ਸੂਚਨਾਵਾਂ",
     noNotifications: "ਕੋਈ ਸੂਚਨਾਵਾਂ ਨਹੀਂ",
+    chatRequests: "ਚੈਟ ਬੇਨਤੀਆਂ",
+    noChatRequests: "ਕੋਈ ਚੈਟ ਬੇਨਤੀ ਨਹੀਂ",
     searchRecords: "ਖੋਜੋ…",
     allCompanies: "ਸਾਰੀਆਂ ਕੰਪਨੀਆਂ",
     actions: "ਕਾਰਵਾਈਆਂ",
@@ -388,6 +402,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "কোনো মিলযুক্ত মেনু আইটেম নেই।",
     notifications: "বিজ্ঞপ্তি",
     noNotifications: "কোনো বিজ্ঞপ্তি নেই",
+    chatRequests: "চ্যাট অনুরোধ",
+    noChatRequests: "কোনো চ্যাট অনুরোধ নেই",
     searchRecords: "খুঁজুন…",
     allCompanies: "সব কোম্পানি",
     actions: "ক্রিয়া",
@@ -447,6 +463,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "సరిపోలిన మెనూ అంశాలు లేవు.",
     notifications: "నోటిఫికేషన్‌లు",
     noNotifications: "నోటిఫికేషన్‌లు లేవు",
+    chatRequests: "చాట్ అభ్యర్థనలు",
+    noChatRequests: "చాట్ అభ్యర్థనలు లేవు",
     searchRecords: "శోధించండి…",
     allCompanies: "అన్ని కంపెనీలు",
     actions: "చర్యలు",
@@ -506,6 +524,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "ಹೊಂದಾಣಿಕೆಯಾಗುವ ಮೆನು ಐಟಂಗಳಿಲ್ಲ.",
     notifications: "ಅಧಿಸೂಚನೆಗಳು",
     noNotifications: "ಅಧಿಸೂಚನೆಗಳಿಲ್ಲ",
+    chatRequests: "ಚಾಟ್ ವಿನಂತಿಗಳು",
+    noChatRequests: "ಚಾಟ್ ವಿನಂತಿಗಳಿಲ್ಲ",
     searchRecords: "ಹುಡುಕಿ…",
     allCompanies: "ಎಲ್ಲಾ ಕಂಪನಿಗಳು",
     actions: "ಕ್ರಿಯೆಗಳು",
@@ -565,6 +585,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "പൊരുത്തപ്പെടുന്ന മെനു ഇനങ്ങളില്ല.",
     notifications: "അറിയിപ്പുകൾ",
     noNotifications: "അറിയിപ്പുകളൊന്നുമില്ല",
+    chatRequests: "ചാറ്റ് അഭ്യർത്ഥനകൾ",
+    noChatRequests: "ചാറ്റ് അഭ്യർത്ഥനകൾ ഇല്ല",
     searchRecords: "തിരയുക…",
     allCompanies: "എല്ലാ കമ്പനികളും",
     actions: "പ്രവർത്തനങ്ങൾ",
@@ -624,6 +646,8 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     noMatches: "பொருந்தும் மெனு உருப்படிகள் இல்லை.",
     notifications: "அறிவிப்புகள்",
     noNotifications: "அறிவிப்புகள் இல்லை",
+    chatRequests: "அரட்டை கோரிக்கைகள்",
+    noChatRequests: "அரட்டை கோரிக்கைகள் இல்லை",
     searchRecords: "தேடு…",
     allCompanies: "அனைத்து நிறுவனங்களும்",
     actions: "செயல்கள்",
