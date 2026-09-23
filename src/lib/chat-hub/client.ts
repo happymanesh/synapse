@@ -1,13 +1,14 @@
 import "server-only";
 
 /**
- * Read-only client for chat-hub's service API - the TopBar agent access point.
- * See chat-hub's README "Phase 2 design: agent access point inside Synapse" for the
- * full design and why this is read-only (no reply capability exists anywhere yet).
+ * Client for chat-hub's service API - the TopBar agent access point. See chat-hub's
+ * README "Phase 2 design: agent access point inside Synapse" for the read/list design;
+ * sendReply below is the reply capability added on top of it (2026-09-23) once both
+ * this app and workPulse already had a verified identity to attach to a reply.
  *
  * Modelled on src/lib/mail/mailer.ts's shape: plain fetch, no SDK, a no-op fallback
- * that fails quietly (returns empty rather than throwing) when unconfigured, and a hard
- * timeout. A missing/unreachable chat-hub must not break the TopBar for anyone.
+ * that fails quietly (returns null/empty rather than throwing) when unconfigured, and a
+ * hard timeout. A missing/unreachable chat-hub must not break the TopBar for anyone.
  */
 
 export interface ChatHubConversationSummary {
@@ -44,7 +45,7 @@ function chatHubConfig(): ChatHubConfig {
   };
 }
 
-async function serviceFetch(path: string): Promise<Response | null> {
+async function serviceFetch(path: string, init: RequestInit = {}): Promise<Response | null> {
   const { baseUrl, serviceSecret } = chatHubConfig();
   if (!baseUrl || !serviceSecret) {
     console.info(`[chat-hub] not configured (CHAT_HUB_BASE_URL/CHAT_HUB_SERVICE_SECRET unset), skipping ${path}`);
@@ -54,7 +55,8 @@ async function serviceFetch(path: string): Promise<Response | null> {
   const signal = AbortSignal.timeout(8_000);
   try {
     const response = await fetch(`${baseUrl}${path}`, {
-      headers: { Authorization: `Bearer ${serviceSecret}` },
+      ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${serviceSecret}` },
       signal,
     });
     if (!response.ok) {
@@ -82,4 +84,22 @@ export async function getConversationTranscript(conversationId: string): Promise
   const response = await serviceFetch(`/api/service/conversations/${encodeURIComponent(conversationId)}`);
   if (!response) return null;
   return response.json();
+}
+
+/**
+ * Sends a reply as `username`. chat-hub itself verifies that username is actually the
+ * agent this conversation is targeted at (its own ownership check, separate from ours
+ * above) - a caller can't reply as someone else's conversation just by holding the
+ * shared secret. Returns null on any failure (unconfigured, network, not-owned, etc.) -
+ * the caller decides what to show the user, this layer doesn't distinguish why.
+ */
+export async function sendReply(conversationId: string, username: string, content: string): Promise<ChatHubMessage | null> {
+  const response = await serviceFetch(`/api/service/conversations/${encodeURIComponent(conversationId)}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ synapseUsername: username, content }),
+  });
+  if (!response) return null;
+  const data = await response.json();
+  return data.message ?? null;
 }

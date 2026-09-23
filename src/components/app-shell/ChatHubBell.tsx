@@ -3,21 +3,26 @@
 import { useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/report-format";
 import { useLanguage } from "@/lib/i18n";
-import type { ChatHubConversationSummary, ChatHubTranscript } from "@/lib/chat-hub/client";
+import { chatHubSupabase } from "@/lib/chat-hub/browser-client";
+import type { ChatHubConversationSummary, ChatHubMessage, ChatHubTranscript } from "@/lib/chat-hub/client";
 
 /**
- * chat-hub's TopBar agent access point. Read-only by design: chat-hub has no reply
- * capability anywhere yet (that's its own phase 3), so this shows a transcript, not a
- * reply box. Structurally mirrors NotificationBell.tsx, but is self-contained (no shared
- * context) since nothing else on the page needs this data.
+ * chat-hub's TopBar agent access point. Now reply-capable (2026-09-23) - a reply is
+ * sent via our own /api/chat-hub/conversations/:id/reply route (which re-checks
+ * ownership before ever calling chat-hub), and the visitor's own follow-ups arrive live
+ * via a direct Supabase Realtime subscription (see browser-client.ts for why this talks
+ * to chat-hub's Supabase project directly rather than through chat-hub's API).
  */
 export default function ChatHubBell() {
   const { t } = useLanguage();
   const [conversations, setConversations] = useState<ChatHubConversationSummary[]>([]);
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [transcript, setTranscript] = useState<ChatHubTranscript | null>(null);
+  const [messages, setMessages] = useState<ChatHubMessage[]>([]);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState(false);
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,13 +39,64 @@ export default function ChatHubBell() {
 
   function openConversation(id: string) {
     setActiveId(id);
-    setTranscript(null);
+    setMessages([]);
+    setTranscriptError(false);
     setTranscriptLoading(true);
     fetch(`/api/chat-hub/conversations/${id}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: ChatHubTranscript | null) => setTranscript(data))
-      .catch(() => setTranscript(null))
+      .then((data: ChatHubTranscript | null) => {
+        if (data) setMessages(data.messages);
+        else setTranscriptError(true);
+      })
+      .catch(() => setTranscriptError(true))
       .finally(() => setTranscriptLoading(false));
+  }
+
+  // Delivers the visitor's follow-up messages live while the modal is open. Our own
+  // replies are skipped here - they're already added optimistically in sendReply()
+  // below, and re-adding them from Realtime would just duplicate the bubble.
+  useEffect(() => {
+    if (!activeId) return;
+
+    const channel = chatHubSupabase
+      .channel(`messages:${activeId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${activeId}` },
+        (payload) => {
+          const incoming = payload.new as ChatHubMessage;
+          if (incoming.sender_type === "agent") return;
+          setMessages((prev) => (prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      chatHubSupabase.removeChannel(channel);
+    };
+  }, [activeId]);
+
+  function sendReply() {
+    const content = reply.trim();
+    if (!content || !activeId || sending) return;
+
+    setSending(true);
+    setReply("");
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), conversation_id: activeId, sender_type: "agent", content, created_at: new Date().toISOString() },
+    ]);
+
+    fetch(`/api/chat-hub/conversations/${activeId}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error();
+      })
+      .catch(() => setTranscriptError(true))
+      .finally(() => setSending(false));
   }
 
   return (
@@ -91,7 +147,7 @@ export default function ChatHubBell() {
       {activeId && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40" onClick={() => setActiveId(null)}>
           <div
-            className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-lg border border-chrome-border bg-chrome-background shadow-xl"
+            className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-chrome-border bg-chrome-background shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-chrome-border px-4 py-3">
@@ -104,21 +160,49 @@ export default function ChatHubBell() {
                 {t("close")}
               </button>
             </div>
-            <div className="max-h-[60vh] overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4">
               {transcriptLoading && <p className="text-sm text-chrome-foreground/50">{t("loading")}</p>}
-              {!transcriptLoading && !transcript && (
+              {!transcriptLoading && transcriptError && messages.length === 0 && (
                 <p className="text-sm text-chrome-foreground/50">{t("somethingWentWrong")}</p>
               )}
-              {transcript?.messages.map((m) => (
-                <div key={m.id} className="mb-3 last:mb-0">
-                  <p className="text-xs font-semibold text-chrome-foreground/60">
-                    {m.sender_type === "visitor" ? "Visitor" : m.sender_type}
-                  </p>
-                  <p className="mt-0.5 text-sm whitespace-pre-wrap text-chrome-foreground/90">{m.content}</p>
-                  <p className="mt-0.5 text-xs text-chrome-foreground/40">{formatDateTime(m.created_at)}</p>
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={["mb-3 last:mb-0 flex", m.sender_type === "agent" ? "justify-end" : "justify-start"].join(" ")}
+                >
+                  <div
+                    className={[
+                      "max-w-[80%] rounded-lg px-3 py-1.5",
+                      m.sender_type === "agent" ? "bg-brand-navy text-white" : "bg-chrome-surface text-chrome-foreground",
+                    ].join(" ")}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{m.content}</p>
+                    <p className="mt-0.5 text-[10px] opacity-70">{formatDateTime(m.created_at)}</p>
+                  </div>
                 </div>
               ))}
             </div>
+            <div className="flex items-center gap-2 border-t border-chrome-border p-3">
+              <input
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendReply()}
+                placeholder={t("typeAReply")}
+                disabled={sending}
+                className="flex-1 rounded-md border border-chrome-border bg-chrome-background px-3 py-1.5 text-sm text-chrome-foreground"
+              />
+              <button
+                type="button"
+                onClick={sendReply}
+                disabled={sending || !reply.trim()}
+                className="rounded-md bg-brand-navy px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                {t("send")}
+              </button>
+            </div>
+            {transcriptError && messages.length > 0 && (
+              <p className="px-3 pb-2 text-xs text-danger">{t("replyFailed")}</p>
+            )}
           </div>
         </div>
       )}
