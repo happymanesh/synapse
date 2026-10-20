@@ -48,3 +48,9 @@ next-env.d.ts
 
 # Database dumps — contain password hashes and personal data. Never commit.
 backups/
+
+# Provisioned credentials — plaintext passwords for real staff accounts, written
+# by the account-provisioning scripts and handed over in person. Never commit.
+provisioned-logins.txt
+synapse-login.txt
+*-logins.txt
