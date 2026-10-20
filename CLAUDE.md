@@ -37,6 +37,9 @@ Pure logic lives in `src/lib/sql-core.ts` and `src/lib/menu-core.ts` (no `server
 
 `getSession()` is the only place a request's identity is established, and it re-checks `UserDetails.isActive` on every call (memoised per request with React `cache()`). The session JWT stays cryptographically valid for its full 8 hours, so without that check, deactivating someone in User Master would not take effect until their token expired. Never decode the session cookie directly to bypass it, and don't move the active-user check out to individual call sites — it will be forgotten on the next route someone adds.
 
+- **Suspension is separate from deactivation.** `is_suspended` is a restorable block (set and lifted by the HR lifecycle when HR freezes/unfreezes an employee; it only lifts suspensions it set). `accountBlock()` in `src/lib/auth-core.ts` is the single rule login and `getSession()` both apply — extend it there, never inline. workPulse reads `user_details` directly and applies the same rule in its `SynapseDirectoryService`.
+- **First-login password change.** New users get `must_change_password`; login then puts a `mustChangePassword` claim in the session token, and the proxy keeps that session on `/change-password` (pages redirect, APIs get 403) until `/api/auth/change-password` succeeds and re-issues the token without the claim. `getSession()` returns null for such a session unless the caller passes `allowPendingPasswordChange` — only the change-password page and route do.
+
 ### Download file naming
 
 Every file this app lets a user download (CSV exports today; any future export/report/document download) is named:

@@ -23,6 +23,7 @@ model CompanyMaster {
   roleMenuMaps RoleMenuMap[]
   apps         AppMaster[]
   tickets      Ticket[]
+  hrBranchMaps HrBranchHierarchyMap[]
 
   @@map("company_master")
 }
@@ -61,6 +62,7 @@ model HierarchyMaster {
   roles         RoleMaster[]
   roleMenuMaps  RoleMenuMap[]
   notifications Notification[]
+  hrBranchMaps  HrBranchHierarchyMap[]
 
   @@map("hierarchy_master")
 }
@@ -93,16 +95,37 @@ model UserDetails {
   /// Last app this user opened — reopened automatically on next login. No FK: an app
   /// that's deleted or revoked just falls back to the user's first accessible app.
   lastAppCode             String?   @map("last_app_code")
+  /// Link to the canonical HR employee (HrEmployee.id): not customer_id, not a source code.
+  hrEmployeeId            Int?      @unique @map("hr_employee_id")
+  /// Manual override: the HR lifecycle process never changes a user with this set.
+  hrManuallyManaged       Boolean   @default(false) @map("hr_manually_managed")
+  /// Restorable block, separate from isActive (permanent). Checked by accountBlock() in
+  /// src/lib/auth-core.ts at login and on every request. Set/lifted by the HR lifecycle when
+  /// HR freezes/unfreezes (suspendedBy = "HR_SYNC"); it never lifts one an admin set.
+  isSuspended             Boolean   @default(false) @map("is_suspended")
+  suspendedAt             DateTime? @map("suspended_at")
+  suspendedBy             String?   @map("suspended_by")
+  suspendedReason         String?   @map("suspended_reason")
+  /// Cross-system key (workPulse links users to employees by it). Mandatory for new users;
+  /// unique case-insensitively via an expression index in migration 20261007180000.
+  employeeCode            String?   @map("employee_code")
+  designation             String?
+  department              String?
+  /// Manager's employee code. ADMIN-set until the HR API supplies it, then HR wins.
+  reportingManagerCode    String?   @map("reporting_manager_code")
+  reportingManagerSource  String?   @map("reporting_manager_source") // ADMIN | HR
+  /// Forces a password change at the next sign-in (proxy + getSession enforce it).
+  mustChangePassword      Boolean   @default(false) @map("must_change_password")
 
   company        CompanyMaster        @relation(fields: [companyCode], references: [companyCode])
   hierarchy      HierarchyMaster      @relation(fields: [hierarchyCode], references: [hierarchyCode])
   clientCategory ClientCategoryMaster @relation(fields: [clientCategoryCode], references: [clientCategoryCode])
 
-  passwordHistory PasswordHistory[]
-  ipMappings      UserIpMapping[]
-  loginLogs       LoginLog[]
-  userRoles       UserRoleMap[]
-  favoriteMenus   UserFavoriteMenu[]
+  passwordHistory     PasswordHistory[]
+  ipMappings          UserIpMapping[]
+  loginLogs           LoginLog[]
+  userRoles           UserRoleMap[]
+  favoriteMenus       UserFavoriteMenu[]
   sentNotifications   Notification[]     @relation("SentNotifications")
   directNotifications Notification[]     @relation("DirectNotifications")
   notificationReads   NotificationRead[]
@@ -111,13 +134,15 @@ model UserDetails {
   // on the owning side — attribution has to survive, and this app deactivates users rather
   // than deleting them. Note that ticket_event deliberately has NO relation here: audit
   // rows denormalise the username so they outlive the user, as menu_usage_log does.
-  ticketsRaised            Ticket[]         @relation("TicketRaiser")
-  ticketsOnBehalf          Ticket[]         @relation("TicketOnBehalf")
-  ticketsAssigned          Ticket[]         @relation("TicketAssignee")
-  changeRequestsRaised     ChangeRequest[]  @relation("CrRequestedBy")
-  changeRequestsApproved   ChangeRequest[]  @relation("CrApprovedBy")
-  serviceRequestsRaised    ServiceRequest[] @relation("SrRequestedBy")
-  serviceRequestsForClient ServiceRequest[] @relation("SrForClient")
+  ticketsRaised            Ticket[]            @relation("TicketRaiser")
+  ticketsOnBehalf          Ticket[]            @relation("TicketOnBehalf")
+  ticketsAssigned          Ticket[]            @relation("TicketAssignee")
+  changeRequestsRaised     ChangeRequest[]     @relation("CrRequestedBy")
+  changeRequestsApproved   ChangeRequest[]     @relation("CrApprovedBy")
+  serviceRequestsRaised    ServiceRequest[]    @relation("SrRequestedBy")
+  serviceRequestsForClient ServiceRequest[]    @relation("SrForClient")
+  hrEmployee               HrEmployee?         @relation(fields: [hrEmployeeId], references: [id], onDelete: SetNull)
+  hrLifecycleActions       HrLifecycleAction[]
 
   @@index([companyCode])
   @@map("user_details")
@@ -184,11 +209,11 @@ model MenuMaster {
   parent   MenuMaster?  @relation("MenuTree", fields: [parentMenuCode], references: [menuCode])
   children MenuMaster[] @relation("MenuTree")
 
-  app       AppMaster?        @relation(fields: [appCode], references: [appCode])
-  company   CompanyMaster     @relation(fields: [companyCode], references: [companyCode])
-  hierarchy HierarchyMaster   @relation(fields: [hierarchyCode], references: [hierarchyCode])
-  report    ReportDefinition? @relation(fields: [reportId], references: [reportId])
-  roleMaps  RoleMenuMap[]
+  app         AppMaster?         @relation(fields: [appCode], references: [appCode])
+  company     CompanyMaster      @relation(fields: [companyCode], references: [companyCode])
+  hierarchy   HierarchyMaster    @relation(fields: [hierarchyCode], references: [hierarchyCode])
+  report      ReportDefinition?  @relation(fields: [reportId], references: [reportId])
+  roleMaps    RoleMenuMap[]
   favoritedBy UserFavoriteMenu[]
 
   @@index([appCode])
@@ -319,23 +344,23 @@ model FilterDefinitionItem {
 /// and displays/exports results) or a FORM (queryText is the "my saved
 /// records" list; targetTable + each item's mappedColumn drive save/edit/delete).
 model ReportDefinition {
-  reportId          String   @id @map("report_id")
-  reportTitle       String   @map("report_title")
-  filterId          String   @map("filter_id")
-  mode              String   @default("REPORT") @map("mode") // REPORT | FORM
-  queryText         String   @map("query_text")
-  targetTable       String?  @map("target_table")
+  reportId           String   @id @map("report_id")
+  reportTitle        String   @map("report_title")
+  filterId           String   @map("filter_id")
+  mode               String   @default("REPORT") @map("mode") // REPORT | FORM
+  queryText          String   @map("query_text")
+  targetTable        String?  @map("target_table")
   /// When set, the engine wraps this report's results with `WHERE <column> = <caller's
   /// company>`. Enforced in SQL exactly as FORM-mode ownership is, so cross-company
   /// leakage cannot happen merely because a query author forgot a predicate.
-  companyScopeColumn String? @map("company_scope_column")
-  maxRows           Int      @default(2000) @map("max_rows")
-  freezeColumns     Int      @default(0) @map("freeze_columns")
-  displayStyle      String   @default("PAGED") @map("display_style") // PAGED | FULL_FROZEN
-  footerNote        String?  @map("footer_note")
-  allowedFormats    String[] @default(["CSV"]) @map("allowed_formats")
-  allowedDeliveries String[] @default(["DOWNLOAD"]) @map("allowed_deliveries")
-  isActive          Boolean  @default(true) @map("is_active")
+  companyScopeColumn String?  @map("company_scope_column")
+  maxRows            Int      @default(2000) @map("max_rows")
+  freezeColumns      Int      @default(0) @map("freeze_columns")
+  displayStyle       String   @default("PAGED") @map("display_style") // PAGED | FULL_FROZEN
+  footerNote         String?  @map("footer_note")
+  allowedFormats     String[] @default(["CSV"]) @map("allowed_formats")
+  allowedDeliveries  String[] @default(["DOWNLOAD"]) @map("allowed_deliveries")
+  isActive           Boolean  @default(true) @map("is_active")
 
   filter             FilterDefinition         @relation(fields: [filterId], references: [filterId])
   columns            ReportColumn[]
@@ -416,21 +441,21 @@ model UserFavoriteMenu {
 /// the message in their applicable-notifications query until scheduledFor has passed
 /// (or immediately, if left blank). See CLAUDE.md "Notifications" rule.
 model Notification {
-  id                   Int       @id @default(autoincrement())
-  senderUid            Int       @map("sender_uid")
-  targetType           String    @map("target_type") // HIERARCHY | USER
-  targetHierarchyCode  String?   @map("target_hierarchy_code")
-  targetUserUid        Int?      @map("target_user_uid")
-  deliveryPopup        Boolean   @default(false) @map("delivery_popup")
-  deliveryBell         Boolean   @default(true) @map("delivery_bell")
-  messageText          String    @map("message_text")
-  scheduledFor         DateTime? @map("scheduled_for")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  isActive             Boolean   @default(true) @map("is_active")
+  id                  Int       @id @default(autoincrement())
+  senderUid           Int       @map("sender_uid")
+  targetType          String    @map("target_type") // HIERARCHY | USER
+  targetHierarchyCode String?   @map("target_hierarchy_code")
+  targetUserUid       Int?      @map("target_user_uid")
+  deliveryPopup       Boolean   @default(false) @map("delivery_popup")
+  deliveryBell        Boolean   @default(true) @map("delivery_bell")
+  messageText         String    @map("message_text")
+  scheduledFor        DateTime? @map("scheduled_for")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  isActive            Boolean   @default(true) @map("is_active")
 
-  sender          UserDetails      @relation("SentNotifications", fields: [senderUid], references: [uid])
-  targetHierarchy HierarchyMaster? @relation(fields: [targetHierarchyCode], references: [hierarchyCode])
-  targetUser      UserDetails?     @relation("DirectNotifications", fields: [targetUserUid], references: [uid])
+  sender          UserDetails        @relation("SentNotifications", fields: [senderUid], references: [uid])
+  targetHierarchy HierarchyMaster?   @relation(fields: [targetHierarchyCode], references: [hierarchyCode])
+  targetUser      UserDetails?       @relation("DirectNotifications", fields: [targetUserUid], references: [uid])
   reads           NotificationRead[]
 
   @@index([targetUserUid])
@@ -448,7 +473,7 @@ model NotificationRead {
   readAt         DateTime @default(now()) @map("read_at")
 
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  user         UserDetails   @relation(fields: [userUid], references: [uid], onDelete: Cascade)
+  user         UserDetails  @relation(fields: [userUid], references: [uid], onDelete: Cascade)
 
   @@unique([notificationId, userUid])
   @@index([userUid])
@@ -457,7 +482,6 @@ model NotificationRead {
 
 /**
  * Append-only log of menu selections, kept for 7 days (see MENU_USAGE_RETENTION_DAYS).
- *
  * Deliberately has NO foreign keys and denormalises company/app/menu names: inserts sit on
  * the click path, so they skip constraint checks entirely, and a log row stays meaningful
  * after the menu or user it refers to is deleted.
@@ -512,7 +536,7 @@ model IssueCategory {
 /// One issue thread. Never hard-deleted — merge and closure are state changes, so the
 /// audit trail in TicketEvent always resolves to a live row (BRS §5, dispute resolution).
 model Ticket {
-  id Int @id @default(autoincrement())
+  id       Int    @id @default(autoincrement())
   /// Allocated by a Postgres sequence default, so no intake path can create a ticket
   /// without a number and concurrent intake across four channels cannot collide. The year
   /// is a display prefix only — the sequence does not reset annually, so a number is never
@@ -578,16 +602,16 @@ model Ticket {
   application ApplicationMaster @relation(fields: [applicationId], references: [id])
   segment     SegmentMaster     @relation(fields: [segmentId], references: [id])
   company     CompanyMaster     @relation(fields: [companyCode], references: [companyCode])
-  raiser     UserDetails?  @relation("TicketRaiser", fields: [raiserUid], references: [uid], onDelete: Restrict)
-  onBehalfOf UserDetails?  @relation("TicketOnBehalf", fields: [onBehalfOfUid], references: [uid], onDelete: Restrict)
-  assignedTo UserDetails?  @relation("TicketAssignee", fields: [assignedToUid], references: [uid], onDelete: Restrict)
+  raiser      UserDetails?      @relation("TicketRaiser", fields: [raiserUid], references: [uid], onDelete: Restrict)
+  onBehalfOf  UserDetails?      @relation("TicketOnBehalf", fields: [onBehalfOfUid], references: [uid], onDelete: Restrict)
+  assignedTo  UserDetails?      @relation("TicketAssignee", fields: [assignedToUid], references: [uid], onDelete: Restrict)
 
   mergedInto    Ticket?  @relation("TicketMerge", fields: [mergedIntoTicketId], references: [id], onDelete: Restrict)
   mergedTickets Ticket[] @relation("TicketMerge")
 
   attachments   TicketAttachment[]
-  events        TicketEvent[]    @relation("TicketEventTicket")
-  relatedEvents TicketEvent[]    @relation("TicketEventRelated")
+  events        TicketEvent[]      @relation("TicketEventTicket")
+  relatedEvents TicketEvent[]      @relation("TicketEventRelated")
   changeRequest ChangeRequest?
   messages      ChannelMessage[]
 
@@ -831,4 +855,226 @@ model ChannelMessage {
   @@index([ticketId, createdAt])
   @@index([serviceRequestId])
   @@map("channel_message")
+}
+
+// ---------------------------------------------------------------------------
+// HR integration: two disconnected processes (migration 20261006120000_hr_ingest_lifecycle).
+//   A. Ingestion (src/lib/hr/ingest): HrIngestRun -> HrRawEmployee -> HrEmployee (+ HrEmployeeChange)
+//   B. Lifecycle (src/lib/hr/lifecycle): HrEmployee -> UserDetails (+ HrLifecycleAction)
+// HrEmployee is the only contract between them. Partial and expression unique indexes live
+// only in the migration; Prisma cannot express them.
+// ---------------------------------------------------------------------------
+
+/// A. One row per ingestion invocation. All-or-nothing: a failed fetch leaves HrEmployee untouched.
+model HrIngestRun {
+  id           Int       @id @default(autoincrement())
+  sourceSystem String    @map("source_system")
+  reqTypes     String    @map("req_types") // e.g. Created,Modified
+  reqDate      DateTime  @map("req_date") @db.Date
+  startedAt    DateTime  @default(now()) @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  status       String    @default("RUNNING") // RUNNING | SUCCEEDED | FAILED
+  /// Reconciliation counts only. No PII.
+  summary      Json?
+  error        String?
+
+  rawRows   HrRawEmployee[]
+  employees HrEmployee[]
+  changes   HrEmployeeChange[]
+
+  @@index([sourceSystem, reqDate])
+  @@map("hr_ingest_run")
+}
+
+/// A. Landing table: the 11 synced fields exactly as received (text, unparsed). No other
+/// source field is ever stored; there is deliberately no payload column. Short retention.
+model HrRawEmployee {
+  id                     BigInt   @id @default(autoincrement())
+  runId                  Int      @map("run_id")
+  reqType                String   @map("req_type") // Created | Modified
+  recordNo               Int      @map("record_no")
+  employeeCode           String?  @map("employee_code")
+  oldEmployeeCode        String?  @map("old_employee_code")
+  companyCode            String?  @map("company_code")
+  firstName              String?  @map("first_name")
+  lastName               String?  @map("last_name")
+  email                  String?
+  mobile                 String?
+  branch                 String?
+  department             String?
+  status                 String?
+  lastWorkingDate        String?  @map("last_working_date")
+  // Added 2026-10-07 (migration 20261007120000_hr_employee_details), as received:
+  joinDate               String?  @map("join_date")
+  groupJoinDate          String?  @map("group_join_date")
+  confirmDate            String?  @map("confirm_date")
+  probationDate          String?  @map("probation_date")
+  fnfRetiringDate        String?  @map("fnf_retiring_date")
+  resignOfferDate        String?  @map("resign_offer_date")
+  reasonForLeaving       String?  @map("reason_for_leaving")
+  freezeAccount          String?  @map("freeze_account")
+  freezeDate             String?  @map("freeze_date")
+  freezeReason           String?  @map("freeze_reason")
+  designation            String?  @map("designation")
+  division               String?  @map("division")
+  unit                   String?  @map("unit")
+  grade                  String?  @map("grade")
+  employeeType           String?  @map("employee_type")
+  jobPostCode            String?  @map("job_post_code")
+  project                String?  @map("project")
+  professionalEmployee   String?  @map("professional_employee")
+  userGroup              String?  @map("user_group")
+  isInternational        String?  @map("is_international")
+  educationQualification String?  @map("education_qualification")
+  pfFlag                 String?  @map("pf_flag")
+  esicFlag               String?  @map("esic_flag")
+  ptFlag                 String?  @map("pt_flag")
+  lwfManager             String?  @map("lwf_manager")
+  lwfSupervisor          String?  @map("lwf_supervisor")
+  attendanceGroup        String?  @map("attendance_group")
+  leaveGroup             String?  @map("leave_group")
+  expenseGroup           String?  @map("expense_group")
+  timeSheetGroup         String?  @map("time_sheet_group")
+  pmsGroup               String?  @map("pms_group")
+  addOnServiceGroup      String?  @map("add_on_service_group")
+  receivedAt             DateTime @default(now()) @map("received_at")
+  curationStatus         String   @default("PENDING") @map("curation_status") // PENDING | ACCEPTED | WARNED | REJECTED | SUPERSEDED
+  curationNotes          String?  @map("curation_notes")
+
+  run HrIngestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, curationStatus])
+  @@index([receivedAt])
+  @@map("hr_raw_employee")
+}
+
+/// The contract between ingestion and lifecycle: one curated, source-neutral row per source
+/// employment record. A company move is two rows linked by previousSourceEmployeeId.
+model HrEmployee {
+  id                       Int       @id @default(autoincrement())
+  sourceSystem             String    @map("source_system")
+  sourceEmployeeId         String    @map("source_employee_id")
+  previousSourceEmployeeId String?   @map("previous_source_employee_id")
+  sourceCompanyCode        String?   @map("source_company_code")
+  firstName                String?   @map("first_name")
+  lastName                 String?   @map("last_name")
+  email                    String?
+  mobile                   String?
+  branch                   String?
+  department               String?
+  sourceStatus             String?   @map("source_status")
+  employmentStatus         String    @map("employment_status") // ACTIVE | INACTIVE | UNKNOWN
+  /// NULL = not leaving. Source placeholders (Spine's 2079) are curated to NULL.
+  lastWorkingDate          DateTime? @map("last_working_date") @db.Date
+  lastWorkingDateInvalid   Boolean   @default(false) @map("last_working_date_invalid")
+  /// Recorded only; never changes access. NULL = source does not report leave.
+  onLeave                  Boolean?  @map("on_leave")
+  // Recorded only — never changes access (migration 20261007120000_hr_employee_details).
+  // leavingReason / frozenReason are HR free text: HR/admin visibility only.
+  joinDate                 DateTime? @map("join_date") @db.Date
+  groupJoinDate            DateTime? @map("group_join_date") @db.Date
+  confirmationDate         DateTime? @map("confirmation_date") @db.Date
+  probationDate            DateTime? @map("probation_date") @db.Date
+  retirementDate           DateTime? @map("retirement_date") @db.Date
+  resignationDate          DateTime? @map("resignation_date") @db.Date
+  leavingReason            String?   @map("leaving_reason")
+  accountFrozen            Boolean?  @map("account_frozen")
+  frozenDate               DateTime? @map("frozen_date") @db.Date
+  frozenReason             String?   @map("frozen_reason")
+  designation              String?   @map("designation")
+  division                 String?   @map("division")
+  unit                     String?   @map("unit")
+  grade                    String?   @map("grade")
+  employeeType             String?   @map("employee_type")
+  jobPostCode              String?   @map("job_post_code")
+  project                  String?   @map("project")
+  isProfessional           Boolean?  @map("is_professional")
+  userGroup                String?   @map("user_group")
+  isInternational          Boolean?  @map("is_international")
+  educationQualification   String?   @map("education_qualification")
+  pfApplicable             Boolean?  @map("pf_applicable")
+  esicApplicable           Boolean?  @map("esic_applicable")
+  ptApplicable             Boolean?  @map("pt_applicable")
+  lwfManager               Boolean?  @map("lwf_manager")
+  lwfSupervisor            Boolean?  @map("lwf_supervisor")
+  attendanceGroup          String?   @map("attendance_group")
+  leaveGroup               String?   @map("leave_group")
+  expenseGroup             String?   @map("expense_group")
+  timesheetGroup           String?   @map("timesheet_group")
+  pmsGroup                 String?   @map("pms_group")
+  addOnServiceGroup        String?   @map("add_on_service_group")
+  /// Manager's employee code. Null for Spine until the vendor adds the field.
+  reportingManagerCode     String?   @map("reporting_manager_code")
+  firstSeenAt              DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt               DateTime  @default(now()) @map("last_seen_at")
+  lastChangedAt            DateTime  @default(now()) @map("last_changed_at")
+  lastRunId                Int?      @map("last_run_id")
+
+  lastRun HrIngestRun?        @relation(fields: [lastRunId], references: [id], onDelete: SetNull)
+  changes HrEmployeeChange[]
+  user    UserDetails?
+  actions HrLifecycleAction[]
+
+  @@unique([sourceSystem, sourceEmployeeId], map: "hr_employee_source_key")
+  @@map("hr_employee")
+}
+
+/// A. Field-level history of HrEmployee: the audit and reconciliation trail.
+model HrEmployeeChange {
+  id           BigInt   @id @default(autoincrement())
+  hrEmployeeId Int      @map("hr_employee_id")
+  runId        Int?     @map("run_id")
+  changeType   String   @map("change_type") // FIRST_SEEN | FIELD_CHANGED | BACKFILLED
+  field        String?
+  oldValue     String?  @map("old_value")
+  newValue     String?  @map("new_value")
+  detectedAt   DateTime @default(now()) @map("detected_at")
+
+  employee HrEmployee   @relation(fields: [hrEmployeeId], references: [id], onDelete: Cascade)
+  run      HrIngestRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([hrEmployeeId, detectedAt])
+  @@index([runId])
+  @@map("hr_employee_change")
+}
+
+/// B. Every decision the lifecycle process acts on. At most one open review per employee.
+model HrLifecycleAction {
+  id            Int       @id @default(autoincrement())
+  hrEmployeeId  Int       @map("hr_employee_id")
+  userUid       Int?      @map("user_uid")
+  action        String // DEACTIVATE | REVIEW | SUSPEND | UNSUSPEND
+  status        String // APPLIED | PENDING_REVIEW | RESOLVED | DISMISSED
+  reason        String
+  effectiveDate DateTime? @map("effective_date") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  resolvedBy    String?   @map("resolved_by")
+  resolvedAt    DateTime? @map("resolved_at")
+
+  employee HrEmployee   @relation(fields: [hrEmployeeId], references: [id], onDelete: Restrict)
+  user     UserDetails? @relation(fields: [userUid], references: [uid], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("hr_lifecycle_action")
+}
+
+/// B. Explicit HR Branch/Department -> Synapse company + hierarchy. Never inferred: menu grants
+/// are hierarchy-filtered, so a fuzzy match would silently change what a user can see.
+/// hrDepartment NULL = any department in the branch; an exact department row wins.
+model HrBranchHierarchyMap {
+  id            Int      @id @default(autoincrement())
+  hrCompanyCode String   @map("hr_company_code")
+  hrBranch      String   @map("hr_branch")
+  hrDepartment  String?  @map("hr_department")
+  companyCode   String   @map("company_code")
+  hierarchyCode String   @map("hierarchy_code")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     String   @map("created_by")
+  updatedBy     String?  @map("updated_by")
+  updatedOn     DateTime @default(now()) @updatedAt @map("updated_on")
+
+  company   CompanyMaster   @relation(fields: [companyCode], references: [companyCode])
+  hierarchy HierarchyMaster @relation(fields: [hierarchyCode], references: [hierarchyCode])
+
+  @@map("hr_branch_hierarchy_map")
 }

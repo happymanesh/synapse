@@ -9,6 +9,8 @@
     "db:deploy": "prisma migrate deploy && prisma db seed",
     "lint": "eslint",
     "test": "tsx --test tests/**/*.test.ts",
+    "hr:ingest": "tsx scripts/hr-ingest.ts",
+    "hr:lifecycle": "tsx --conditions=react-server scripts/hr-lifecycle.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
