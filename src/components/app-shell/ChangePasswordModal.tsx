@@ -11,7 +11,19 @@ import { useLanguage } from "@/lib/i18n";
  * give two sets of wording that drift apart, and the client copy would be the one people
  * trust. The rules are *stated* below the fields so nobody has to discover them by failing.
  */
-export default function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+/**
+ * `forced`: the first-login change (the /change-password page). No Close button, Escape does
+ * nothing, and on success `onChanged` runs instead of showing a message — the caller moves on.
+ */
+export default function ChangePasswordModal({
+  onClose,
+  forced = false,
+  onChanged,
+}: {
+  onClose: () => void;
+  forced?: boolean;
+  onChanged?: () => void;
+}) {
   const { t } = useLanguage();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -24,11 +36,11 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
   // time without a reset: a password must not sit in React state behind a closed dialog.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !forced) onClose();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, forced]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,6 +55,10 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? t("somethingWentWrong"));
+        return;
+      }
+      if (onChanged) {
+        onChanged();
         return;
       }
       setSuccess(true);
@@ -69,6 +85,7 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
       <div className="w-full max-w-sm rounded-lg bg-card p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-lg font-semibold text-foreground">{t("changePassword")}</h3>
+          {!forced && (
           <button
             type="button"
             onClick={onClose}
@@ -76,7 +93,13 @@ export default function ChangePasswordModal({ onClose }: { onClose: () => void }
           >
             {t("close")}
           </button>
+          )}
         </div>
+        {forced && (
+          <p className="mb-3 text-sm text-foreground/70">
+            This is your first sign-in. Replace the password you were given before continuing.
+          </p>
+        )}
 
         {success ? (
           <p className="text-sm text-brand-teal">

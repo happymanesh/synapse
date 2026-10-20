@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
-import { getSession } from "@/lib/session";
+import { createSession, getSession } from "@/lib/session";
 import { isPasswordReused, validatePasswordChangeRequest } from "@/lib/password-policy";
 
 /**
@@ -17,7 +17,8 @@ import { isPasswordReused, validatePasswordChangeRequest } from "@/lib/password-
  * one standard.
  */
 export async function POST(request: NextRequest) {
-  const session = await getSession();
+  // The one route (with the change-password page) open to a first-login session.
+  const session = await getSession({ allowPendingPasswordChange: true });
   if (!session) {
     // JSON, not a redirect: this is called by fetch(). See the UNAUTHORIZED_JSON reasoning
     // in @/lib/auth-core.
@@ -69,10 +70,18 @@ export async function POST(request: NextRequest) {
   await prisma.$transaction([
     prisma.userDetails.update({
       where: { uid: session.userUid },
-      data: { passwordHash, lastPasswordChangedDate: new Date() },
+      data: { passwordHash, lastPasswordChangedDate: new Date(), mustChangePassword: false },
     }),
     prisma.passwordHistory.create({ data: { userUid: session.userUid, passwordHash } }),
   ]);
+
+  // A first-login session carries the mustChangePassword claim that keeps it on the
+  // change-password page; re-issue it without the claim so the user can carry on.
+  if (session.mustChangePassword) {
+    const { mustChangePassword: _done, iat: _iat, exp: _exp, ...rest } = session;
+    void _done; void _iat; void _exp;
+    await createSession(rest as typeof session);
+  }
 
   // The session cookie is a signed JWT carrying no password material, so it stays valid and
   // the user is not thrown out mid-task. Worth knowing: sessions are stateless, so a change

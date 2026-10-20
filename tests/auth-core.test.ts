@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { decideProxyAction, isApiRoute, isPublicRoute } from "../src/lib/auth-core";
+import { accountBlock, CHANGE_PASSWORD_ROUTE, decideProxyAction, isApiRoute, isPublicRoute } from "../src/lib/auth-core";
 
 describe("isPublicRoute", () => {
   test("the login page and paths under it are public", () => {
@@ -65,5 +65,45 @@ describe("decideProxyAction", () => {
   test("a nested public path stays reachable while signed in", () => {
     // Only /login itself bounces onward — /login/help must not become unreachable.
     assert.equal(decideProxyAction("/login/help", true), "ALLOW");
+  });
+});
+
+describe("accountBlock", () => {
+  test("active and not suspended may sign in", () => {
+    assert.equal(accountBlock({ isActive: true, isSuspended: false }), null);
+  });
+  test("suspended is blocked, but distinguishable from inactive", () => {
+    assert.equal(accountBlock({ isActive: true, isSuspended: true }), "SUSPENDED");
+  });
+  test("inactive wins over suspended", () => {
+    assert.equal(accountBlock({ isActive: false, isSuspended: true }), "INACTIVE");
+    assert.equal(accountBlock({ isActive: false, isSuspended: false }), "INACTIVE");
+  });
+});
+
+describe("first-login password change (proxy)", () => {
+  test("every page redirects to the change-password page, every API is refused", () => {
+    assert.equal(decideProxyAction("/dashboard", true, true), "REDIRECT_TO_CHANGE_PASSWORD");
+    assert.equal(decideProxyAction("/admin/users", true, true), "REDIRECT_TO_CHANGE_PASSWORD");
+    assert.equal(decideProxyAction("/login", true, true), "REDIRECT_TO_CHANGE_PASSWORD");
+    assert.equal(decideProxyAction("/api/notifications", true, true), "PASSWORD_CHANGE_REQUIRED_JSON");
+  });
+
+  test("the change-password page itself is allowed", () => {
+    assert.equal(decideProxyAction(CHANGE_PASSWORD_ROUTE, true, true), "ALLOW");
+  });
+
+  test("after the change, the page is pointless and goes to the dashboard", () => {
+    assert.equal(decideProxyAction(CHANGE_PASSWORD_ROUTE, true, false), "REDIRECT_TO_DASHBOARD");
+  });
+
+  test("signed out is unchanged: login first", () => {
+    assert.equal(decideProxyAction(CHANGE_PASSWORD_ROUTE, false, false), "REDIRECT_TO_LOGIN");
+    assert.equal(decideProxyAction("/dashboard", false, true), "REDIRECT_TO_LOGIN");
+  });
+
+  test("normal sessions are unaffected", () => {
+    assert.equal(decideProxyAction("/dashboard", true, false), "ALLOW");
+    assert.equal(decideProxyAction("/api/notifications", true), "ALLOW");
   });
 });

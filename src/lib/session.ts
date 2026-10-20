@@ -3,6 +3,7 @@ import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
+import { accountBlock } from "@/lib/auth-core";
 
 export interface SessionPayload {
   userUid: number;
@@ -12,6 +13,8 @@ export interface SessionPayload {
   hierarchyCode: string;
   hierarchyName: string;
   roles: string[];
+  /** Set at sign-in for a must_change_password user; cleared when they change it. */
+  mustChangePassword?: boolean;
   [key: string]: unknown;
 }
 
@@ -60,22 +63,28 @@ export async function createSession(payload: SessionPayload): Promise<void> {
 const isUserActive = cache(async (userUid: number): Promise<boolean> => {
   const user = await prisma.userDetails.findUnique({
     where: { uid: userUid },
-    select: { isActive: true },
+    select: { isActive: true, isSuspended: true },
   });
-  return user?.isActive === true;
+  return !!user && accountBlock(user) === null;
 });
 
-export async function getSession(): Promise<SessionPayload | null> {
+/**
+ * `allowPendingPasswordChange` is for the change-password page and API only. Everywhere
+ * else a session still waiting for its first-login password change counts as no session —
+ * the proxy already keeps such users on the change-password page; this is the second lock.
+ */
+export async function getSession(opts: { allowPendingPasswordChange?: boolean } = {}): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
   const session = cookieStore.get(SESSION_COOKIE)?.value;
   if (!session) return null;
   const payload = await decrypt(session);
   if (!payload) return null;
-  // The token stays cryptographically valid for its full 8 hours, so deactivating
-  // someone in User Master would otherwise leave them working until it expired.
+  // The token stays cryptographically valid for its full 8 hours, so deactivating or
+  // suspending someone would otherwise leave them working until it expired.
   // The check belongs here — the one path every route reads the session through —
   // rather than at each call site, where it would eventually be forgotten.
   if (!(await isUserActive(payload.userUid))) return null;
+  if (payload.mustChangePassword && !opts.allowPendingPasswordChange) return null;
   return payload;
 }
 

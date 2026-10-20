@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { getClientIp, isIpAllowed } from "@/lib/ip-match";
 import { createSession } from "@/lib/session";
+import { accountBlock } from "@/lib/auth-core";
 
 async function logAttempt(params: {
   username: string;
@@ -46,9 +47,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid username or password." }, { status: 401 });
   }
 
-  if (!user.isActive) {
+  const block = accountBlock(user);
+  if (block === "INACTIVE") {
     await logAttempt({ username, userUid: user.uid, status: "FAILURE", failureReason: "USER_INACTIVE", ipAddress, userAgent });
     return NextResponse.json({ error: "This account is inactive. Contact your administrator." }, { status: 401 });
+  }
+  if (block === "SUSPENDED") {
+    await logAttempt({ username, userUid: user.uid, status: "FAILURE", failureReason: "USER_SUSPENDED", ipAddress, userAgent });
+    return NextResponse.json({ error: "This account is suspended. Contact your administrator." }, { status: 401 });
   }
 
   if (!user.company.isActive || !user.hierarchy.isActive) {
@@ -84,7 +90,8 @@ export async function POST(request: NextRequest) {
     hierarchyCode: user.hierarchyCode,
     hierarchyName: user.hierarchy.hierarchyName,
     roles: [],
+    ...(user.mustChangePassword ? { mustChangePassword: true } : {}),
   });
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, mustChangePassword: user.mustChangePassword });
 }

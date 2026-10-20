@@ -36,7 +36,8 @@ export default function LoginPanel() {
         setError(data.error ?? "Unable to sign in.");
         return;
       }
-      router.push("/dashboard");
+      // First sign-in: the proxy would redirect anyway; go straight there.
+      router.push(data.mustChangePassword ? "/change-password" : "/dashboard");
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");
