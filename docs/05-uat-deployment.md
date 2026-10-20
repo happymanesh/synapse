@@ -59,6 +59,35 @@ Generate one with:
 | `SEED_DEMO` | `false` | Omits the demo fixtures — the sample accounts `Manesh001`/`Client001`, the hand-created `sample_sales` table and the Sales Report/Summary/Entry worked example. Leave unset (or `true`) only if UAT explicitly wants that sample data. |
 | `DATABASE_URL_READONLY` | connection string for a SELECT-only role | Second connection used **only** to execute administrator-authored report SQL. `assertSelectOnly()` already rejects non-SELECT statements, but that is an application guard; pointing report execution at a role with no write grants makes it structural. Without this the app falls back to the main connection and `REPORT_DB_IS_READONLY` reports `false`. |
 
+### Chat-hub widget — optional, and off unless all of it is set
+
+The in-app chat widget. Unset, the app logs `[chat-hub] not configured` once and carries
+on without it; nothing else is affected.
+
+| Key | Value for UAT | Purpose |
+|---|---|---|
+| `CHAT_HUB_BASE_URL` | chat-hub deployment URL | Server-side calls into chat-hub. |
+| `CHAT_HUB_SERVICE_SECRET` | **secret** | Authenticates Synapse to chat-hub as a service. |
+| `NEXT_PUBLIC_CHAT_HUB_SUPABASE_URL` | chat-hub's Supabase URL | Read by the browser for live delivery. `NEXT_PUBLIC_` means **it ships to the client** — only ever put public values here. |
+| `NEXT_PUBLIC_CHAT_HUB_SUPABASE_ANON_KEY` | chat-hub's anon key | Same: public by design, and not a substitute for the service secret above. |
+
+### HR ingestion from Spine — optional, and off unless all of it is set
+
+Only needed if you are running §3.5. Without these the HR scripts stop immediately and
+change nothing; the rest of Synapse is unaffected.
+
+| Key | Value for UAT | Purpose |
+|---|---|---|
+| `SPINE_CLIENT_KEY` | from the Spine vendor | Half of the credentials that mint an access token. |
+| `SPINE_PRODUCT_KEY` | from the Spine vendor | Identifies which product the feed belongs to. |
+| `SPINE_CLIENT_SECRET` | from the Spine vendor | **Secret.** Treat like a password; it is not in the repository. |
+| `SPINE_BASE_URL` | defaults to `https://v2.spineapi.in` | Only set it to point at a different Spine host. The v2 host is the one that works; v1 does not serve this feed. |
+| `HR_RAW_RETENTION_DAYS` | e.g. `90` | How long raw Spine payloads are kept in `hr_raw_employee`. They contain personal data, so keeping them forever is a liability, and deleting them immediately removes the ability to re-derive a bad mapping. |
+
+The legacy names `CLIENT_KEY`, `PRODUCT_KEY` and `CLIENT_SECRET` are still read as
+fallbacks. Prefer the `SPINE_` names — the unprefixed ones are ambiguous in a file that
+will eventually hold credentials for more than one vendor.
+
 ### Outbound email — optional, and off unless all of it is set
 
 One email exists in this release: the notice sent to a member of staff when a ticket is
@@ -144,7 +173,7 @@ build in a container that prunes dev dependencies, make sure it happens after in
 
     npx prisma migrate deploy
 
-This applies the 15 committed migration files in order. **See §9 — do not use
+This applies the 19 committed migration files in order. **See §9 — do not use
 `prisma migrate dev` or `prisma db push`.**
 
 ### 3.4 Seed reference data
@@ -160,7 +189,29 @@ The seed is **idempotent** (upserts throughout) and safe to re-run. It deliberat
 touch `passwordHash` on an existing account, so re-seeding never resets a password someone
 has changed.
 
-### 3.5 Start
+### 3.5 Load the employee master from Spine — optional, and only once credentials exist
+
+    npm run hr:ingest       # Spine -> hr_raw_employee -> hr_employee
+    npm run hr:lifecycle    # act on what the ingestion found
+
+The two halves are deliberately separate. **Ingestion** reads Spine's employee feed into
+`hr_raw_employee`, projects it onto `hr_employee`, and records what changed in
+`hr_employee_change` and each run in `hr_ingest_run`. Keeping the raw payload means a
+mapping mistake can be re-derived without asking the vendor to send the file again.
+**Lifecycle** acts on the result: a leaver gets their Synapse account suspended, recorded
+in `hr_lifecycle_action`.
+
+Run ingestion first and read `hr_ingest_run` before running lifecycle. Lifecycle suspends
+real people's accounts, and a bad ingestion is a bad list of leavers.
+
+Needs `SPINE_CLIENT_KEY`, `SPINE_PRODUCT_KEY` and `SPINE_CLIENT_SECRET` (§2). Without
+them the scripts stop with a clear message and change nothing. Skipping this entirely is a
+supported state: the rest of Synapse works, and `hr_employee` simply stays empty.
+
+**`reporting_manager_code` arrives empty from the vendor** and is not populated yet, so
+nothing may depend on the reporting line until it is.
+
+### 3.6 Start
 
     npm run start
 
@@ -181,8 +232,35 @@ Immediately afterwards:
 1. **Change the password** — click your name (top right) → Settings → Change password. It asks
    for the current password as well as the new one; a session alone is not enough to change it.
    The new password must meet the policy in §2 and must not repeat any of the last 3.
-2. Create real staff accounts in **Administration → User Master**.
+2. Create real staff accounts in **Administration → User Master**. **An employee code is
+   now required** on every account: workPulse joins users to staff by employee code and
+   never by email, because roughly a hundred people here share a mailbox. An account
+   created without one cannot be matched to a person later without an administrator going
+   back and editing it.
 3. Assign roles in **Administration → Roles**, or via the 🛡️ action on a user.
+
+### What a newly created user sees
+
+An account created by an administrator is flagged to change its password, and until it
+does, **it can do nothing else**: every page redirects to the change-password screen and
+every API call is refused. That is deliberate — accounts are created with a password
+somebody else generated, and nothing previously obliged the owner to replace it.
+
+So hand over the temporary password, and expect the first thing they see to be the
+change-password screen rather than the dashboard. If somebody reports being "stuck on a
+password page", that is the control working, not a fault.
+
+### Suspended is not deactivated
+
+Two separate states, and the difference matters when somebody asks why an account stopped
+working:
+
+- **Suspended** keeps `is_active = true` and is restorable. It is what the HR lifecycle
+  (§3.5) sets when Spine reports a leaver.
+- **Deactivated** is the permanent "this person has left".
+
+Both are refused at login *and* on every subsequent request, so neither waits for the
+8-hour token to expire.
 
 ### Roles and what they mean
 
@@ -242,6 +320,8 @@ These are known and agreed, not defects. Tell UAT testers so they do not raise t
 | **Email intake, CEO dashboard, solutions bot** | Phase 2/3 by design (BRS §7). |
 | **Issue taxonomy** | The 8 applications and 7 segments seeded are provisional and were not signed off by the support lead (BRS §11.2). They are editable in-app under Support → Applications / Segments. |
 | **Daily morning reminder (§4.5)** | Surfaces as counters on the Triage Queue rather than a pushed reminder, because pushing depends on delivery being wired. |
+| **HR reporting line (§3.5)** | `reporting_manager_code` arrives empty from the vendor, so the employee master has no manager hierarchy. Anything that would escalate to "your manager" has nothing to resolve against until the vendor delivers it. The rest of the employee record is complete. |
+| **HR ingestion scheduling** | The two scripts are run by hand. Nothing schedules them yet, so the employee master is as current as the last time somebody ran `npm run hr:ingest`. |
 
 ---
 
