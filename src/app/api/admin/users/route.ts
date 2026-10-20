@@ -6,6 +6,7 @@ import { userCreateSchema } from "@/lib/admin-schemas";
 import { adminErrorResponse } from "@/lib/admin-crud";
 import { checkPasswordPolicy } from "@/lib/password-policy";
 import { getUsersPage } from "@/lib/admin-users";
+import { resolveEmployeeProfile } from "@/lib/user-employee-profile";
 
 export async function GET(request: NextRequest) {
   await requireAdmin();
@@ -29,6 +30,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: policy.errors.join(" ") }, { status: 400 });
     }
 
+    const profile = await resolveEmployeeProfile(body);
+    if (!profile.ok) return NextResponse.json({ error: profile.error }, { status: profile.status });
+
     const passwordHash = await bcrypt.hash(body.password, 10);
 
     const created = await prisma.$transaction(async (tx) => {
@@ -45,6 +49,10 @@ export async function POST(request: NextRequest) {
           clientCategoryCode: body.clientCategoryCode,
           isActive: body.isActive,
           lastPasswordChangedDate: new Date(),
+          ...profile.data,
+          reportingManagerSource: profile.data.reportingManagerCode ? "ADMIN" : null,
+          // Every new user replaces the password they were given at first sign-in.
+          mustChangePassword: true,
         },
       });
       await tx.passwordHistory.create({ data: { userUid: user.uid, passwordHash } });

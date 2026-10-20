@@ -100,8 +100,21 @@ export const userCreateSchema = z.object({
   hierarchyCode: z.string().min(1),
   clientCategoryCode: z.string().min(1).default("C00"),
   isActive: z.boolean(),
+  // Employee profile — workPulse links users to employees by employeeCode (mandatory for
+  // every user, SIHL 2026-10-07). Uniqueness and the manager check are server-side, in
+  // resolveEmployeeProfile().
+  employeeCode: z.string().trim().min(1, "Employee code is required."),
+  designation: z.string().optional().nullable(),
+  department: z.string().optional().nullable(),
+  reportingManagerCode: z.string().optional().nullable(),
 });
-export const userUpdateSchema = userCreateSchema.omit({ password: true });
+/**
+ * Username is omitted as well as password: it is the identity key, the form
+ * hides it on edit (as every other admin screen hides its own code), and so it
+ * is never submitted. Requiring it here made every user edit fail validation
+ * with "expected string, received undefined", whatever field was being changed.
+ */
+export const userUpdateSchema = userCreateSchema.omit({ password: true, username: true });
 
 export const passwordResetSchema = z.object({
   password: z.string().min(1),

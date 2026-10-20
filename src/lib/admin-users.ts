@@ -19,6 +19,7 @@ export async function getUsersPage({ page, pageSize, company, search }: UsersPag
             { fullName: { contains: search, mode: "insensitive" } },
             { email: { contains: search, mode: "insensitive" } },
             { mobile: { contains: search, mode: "insensitive" } },
+            { employeeCode: { contains: search, mode: "insensitive" } },
           ],
         }
       : {}),

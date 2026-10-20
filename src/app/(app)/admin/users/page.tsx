@@ -28,6 +28,12 @@ export default async function UsersAdminPage() {
     },
     { name: "username", label: "Username", type: "text", required: true, hideOnEdit: true },
     { name: "password", label: "Password", type: "password", required: true, hideOnEdit: true },
+    // Employee profile: workPulse links users to employees by employee code, and needs
+    // designation, department and manager — none of which Synapse held before.
+    { name: "employeeCode", label: "Employee Code", type: "text", required: true },
+    { name: "designation", label: "Designation", type: "text" },
+    { name: "department", label: "Department", type: "text" },
+    { name: "reportingManagerCode", label: "Reporting Manager (employee code)", type: "text" },
     { name: "customerId", label: "Customer ID", type: "text" },
     { name: "fullName", label: "Full Name", type: "text", required: true },
     { name: "mobile", label: "Mobile", type: "text" },
@@ -52,7 +58,9 @@ export default async function UsersAdminPage() {
 
   const columns: ColumnConfig[] = [
     { key: "username", label: "Username" },
+    { key: "employeeCode", label: "Emp. Code" },
     { key: "fullName", label: "Full Name" },
+    { key: "designation", label: "Designation" },
     { key: "companyCode", label: "Company" },
     { key: "hierarchyName", label: "Hierarchy" },
     { key: "clientCategoryName", label: "Category" },
