@@ -595,6 +595,13 @@ export default function AdminCrudTable({
                           disabled={mode === "edit" && f.disabledOnEdit}
                           value={String(formValues[f.name] ?? "")}
                           onChange={(e) => updateField(f.name, f.type === "number" ? e.target.valueAsNumber : e.target.value)}
+                          // An admin creating ANOTHER person's account is not signing in.
+                          // Without this the browser sees a text field next to a password
+                          // field and helpfully fills in the admin's own saved credentials,
+                          // so "Add user" arrives pre-populated with the signed-in admin.
+                          // "new-password" is the one value Chrome and Safari both respect
+                          // on a password input; plain "off" they ignore.
+                          autoComplete={f.type === "password" ? "new-password" : "off"}
                           className={`w-full rounded-md border bg-card px-3 py-2 text-sm outline-none focus:ring-1 disabled:opacity-50 ${borderClass}`}
                         />
                       )}

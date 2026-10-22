@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Montserrat, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
 // chat-hub widget, registered as its own app ("SIHL Synapse (internal)") separate from
@@ -9,15 +9,19 @@ import "./globals.css";
 const CHAT_HUB_ORIGIN = "https://chat-hub-neon.vercel.app";
 const CHAT_HUB_APP_KEY = "sihl_pk_e8047ee9029689a7f86b02e40909b483";
 
-const montserrat = Montserrat({
-  variable: "--font-montserrat",
+// IBM Plex, matching workPulse, so the two products read as one suite. Plex is also a
+// better fit than Montserrat for dense data screens: Montserrat is a geometric display
+// face whose wide, even letterforms cost horizontal room in every table cell.
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -33,7 +37,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${montserrat.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${plexSans.variable} ${plexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

@@ -84,6 +84,7 @@ export type TranslationKey =
   | "loading"
   | "saving"
   | "loginActivity"
+  | "employees"
   | "activeUsers"
   | "loginsToday"
   | "pendingHelpRequests"
@@ -93,7 +94,7 @@ export type TranslationKey =
 const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   en: {
     dashboard: "Dashboard",
-    dashboardSubtitle: "Placeholder overview — will be wired to live data in a later phase.",
+    dashboardSubtitle: "Your workspace at a glance.",
     favorites: "Favorites",
     frequentlyUsed: "Frequently used options",
     searchPlaceholder: "Search menu…",
@@ -150,6 +151,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "Saving…",
     loginActivity: "Login activity (last 7 days)",
     activeUsers: "Active users",
+    employees: "Employees",
     loginsToday: "Logins today",
     pendingHelpRequests: "Pending help requests",
     success: "Success",
@@ -157,7 +159,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   hi: {
     dashboard: "डैशबोर्ड",
-    dashboardSubtitle: "प्लेसहोल्डर अवलोकन — बाद के चरण में लाइव डेटा से जोड़ा जाएगा।",
+    dashboardSubtitle: "एक नज़र में आपका कार्यक्षेत्र।",
     favorites: "पसंदीदा",
     frequentlyUsed: "अक्सर उपयोग किए जाने वाले विकल्प",
     searchPlaceholder: "मेनू खोजें…",
@@ -214,6 +216,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "सहेजा जा रहा है…",
     loginActivity: "लॉगिन गतिविधि (पिछले 7 दिन)",
     activeUsers: "सक्रिय उपयोगकर्ता",
+    employees: "कर्मचारी",
     loginsToday: "आज लॉगिन",
     pendingHelpRequests: "लंबित सहायता अनुरोध",
     success: "सफलता",
@@ -221,7 +224,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   mr: {
     dashboard: "डॅशबोर्ड",
-    dashboardSubtitle: "प्लेसहोल्डर आढावा — नंतरच्या टप्प्यात लाइव्ह डेटाशी जोडले जाईल.",
+    dashboardSubtitle: "एका दृष्टिक्षेपात तुमचे कार्यक्षेत्र.",
     favorites: "आवडते",
     frequentlyUsed: "वारंवार वापरले जाणारे पर्याय",
     searchPlaceholder: "मेनू शोधा…",
@@ -278,6 +281,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "जतन होत आहे…",
     loginActivity: "लॉगिन क्रियाकलाप (मागील 7 दिवस)",
     activeUsers: "सक्रिय वापरकर्ते",
+    employees: "कर्मचारी",
     loginsToday: "आज लॉगिन",
     pendingHelpRequests: "प्रलंबित मदत विनंत्या",
     success: "यश",
@@ -285,7 +289,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   gu: {
     dashboard: "ડેશબોર્ડ",
-    dashboardSubtitle: "પ્લેસહોલ્ડર ઝાંખી — પછીના તબક્કામાં લાઇવ ડેટા સાથે જોડવામાં આવશે.",
+    dashboardSubtitle: "એક નજરમાં તમારું કાર્યક્ષેત્ર.",
     favorites: "મનપસંદ",
     frequentlyUsed: "વારંવાર વપરાતા વિકલ્પો",
     searchPlaceholder: "મેનૂ શોધો…",
@@ -342,6 +346,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "સાચવી રહ્યાં છીએ…",
     loginActivity: "લૉગિન પ્રવૃત્તિ (છેલ્લા 7 દિવસ)",
     activeUsers: "સક્રિય વપરાશકર્તાઓ",
+    employees: "કર્મચારીઓ",
     loginsToday: "આજે લૉગિન",
     pendingHelpRequests: "બાકી સહાય વિનંતીઓ",
     success: "સફળતા",
@@ -349,7 +354,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   pa: {
     dashboard: "ਡੈਸ਼ਬੋਰਡ",
-    dashboardSubtitle: "ਪਲੇਸਹੋਲਡਰ ਸੰਖੇਪ — ਬਾਅਦ ਦੇ ਪੜਾਅ ਵਿੱਚ ਲਾਈਵ ਡੇਟਾ ਨਾਲ ਜੋੜਿਆ ਜਾਵੇਗਾ।",
+    dashboardSubtitle: "ਇੱਕ ਨਜ਼ਰ ਵਿੱਚ ਤੁਹਾਡਾ ਕਾਰਜ-ਖੇਤਰ।",
     favorites: "ਮਨਪਸੰਦ",
     frequentlyUsed: "ਅਕਸਰ ਵਰਤੇ ਜਾਂਦੇ ਵਿਕਲਪ",
     searchPlaceholder: "ਮੀਨੂ ਖੋਜੋ…",
@@ -406,6 +411,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "ਸੰਭਾਲਿਆ ਜਾ ਰਿਹਾ ਹੈ…",
     loginActivity: "ਲੌਗਇਨ ਗਤੀਵਿਧੀ (ਪਿਛਲੇ 7 ਦਿਨ)",
     activeUsers: "ਸਰਗਰਮ ਵਰਤੋਂਕਾਰ",
+    employees: "ਕਰਮਚਾਰੀ",
     loginsToday: "ਅੱਜ ਲੌਗਇਨ",
     pendingHelpRequests: "ਬਕਾਇਆ ਮਦਦ ਬੇਨਤੀਆਂ",
     success: "ਸਫਲਤਾ",
@@ -413,7 +419,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   bn: {
     dashboard: "ড্যাশবোর্ড",
-    dashboardSubtitle: "প্লেসহোল্ডার সংক্ষিপ্ত বিবরণ — পরবর্তী ধাপে লাইভ ডেটার সাথে যুক্ত করা হবে।",
+    dashboardSubtitle: "এক নজরে আপনার কর্মক্ষেত্র।",
     favorites: "প্রিয়",
     frequentlyUsed: "প্রায়শই ব্যবহৃত অপশন",
     searchPlaceholder: "মেনু অনুসন্ধান করুন…",
@@ -470,6 +476,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "সংরক্ষণ করা হচ্ছে…",
     loginActivity: "লগইন কার্যকলাপ (গত ৭ দিন)",
     activeUsers: "সক্রিয় ব্যবহারকারী",
+    employees: "কর্মচারী",
     loginsToday: "আজকের লগইন",
     pendingHelpRequests: "মুলতুবি সাহায্যের অনুরোধ",
     success: "সাফল্য",
@@ -477,7 +484,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   te: {
     dashboard: "డాష్‌బోర్డ్",
-    dashboardSubtitle: "ప్లేస్‌హోల్డర్ అవలోకనం — తర్వాతి దశలో లైవ్ డేటాతో అనుసంధానించబడుతుంది.",
+    dashboardSubtitle: "ఒక చూపులో మీ కార్యస్థలం.",
     favorites: "ఇష్టమైనవి",
     frequentlyUsed: "తరచుగా ఉపయోగించే ఎంపికలు",
     searchPlaceholder: "మెనూ శోధించండి…",
@@ -534,6 +541,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "సేవ్ అవుతోంది…",
     loginActivity: "లాగిన్ కార్యకలాపం (గత 7 రోజులు)",
     activeUsers: "క్రియాశీల వినియోగదారులు",
+    employees: "ఉద్యోగులు",
     loginsToday: "ఈరోజు లాగిన్‌లు",
     pendingHelpRequests: "పెండింగ్‌లో ఉన్న సహాయ అభ్యర్థనలు",
     success: "విజయం",
@@ -541,7 +549,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   kn: {
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
-    dashboardSubtitle: "ಪ್ಲೇಸ್‌ಹೋಲ್ಡರ್ ಅವಲೋಕನ — ನಂತರದ ಹಂತದಲ್ಲಿ ಲೈವ್ ಡೇಟಾಗೆ ಸಂಪರ್ಕಿಸಲಾಗುವುದು.",
+    dashboardSubtitle: "ಒಂದು ನೋಟದಲ್ಲಿ ನಿಮ್ಮ ಕಾರ್ಯಕ್ಷೇತ್ರ.",
     favorites: "ಮೆಚ್ಚಿನವುಗಳು",
     frequentlyUsed: "ಪದೇ ಪದೇ ಬಳಸುವ ಆಯ್ಕೆಗಳು",
     searchPlaceholder: "ಮೆನು ಹುಡುಕಿ…",
@@ -598,6 +606,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "ಉಳಿಸಲಾಗುತ್ತಿದೆ…",
     loginActivity: "ಲಾಗಿನ್ ಚಟುವಟಿಕೆ (ಕಳೆದ 7 ದಿನಗಳು)",
     activeUsers: "ಸಕ್ರಿಯ ಬಳಕೆದಾರರು",
+    employees: "ಉದ್ಯೋಗಿಗಳು",
     loginsToday: "ಇಂದಿನ ಲಾಗಿನ್‌ಗಳು",
     pendingHelpRequests: "ಬಾಕಿ ಇರುವ ಸಹಾಯ ವಿನಂತಿಗಳು",
     success: "ಯಶಸ್ಸು",
@@ -605,7 +614,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   ml: {
     dashboard: "ഡാഷ്ബോർഡ്",
-    dashboardSubtitle: "പ്ലേസ്‌ഹോൾഡർ അവലോകനം — പിന്നീടുള്ള ഘട്ടത്തിൽ തത്സമയ ഡാറ്റയുമായി ബന്ധിപ്പിക്കും.",
+    dashboardSubtitle: "ഒറ്റനോട്ടത്തിൽ നിങ്ങളുടെ പ്രവർത്തനമേഖല.",
     favorites: "പ്രിയപ്പെട്ടവ",
     frequentlyUsed: "പതിവായി ഉപയോഗിക്കുന്ന ഓപ്ഷനുകൾ",
     searchPlaceholder: "മെനു തിരയുക…",
@@ -662,6 +671,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "സേവ് ചെയ്യുന്നു…",
     loginActivity: "ലോഗിൻ പ്രവർത്തനം (കഴിഞ്ഞ 7 ദിവസം)",
     activeUsers: "സജീവ ഉപയോക്താക്കൾ",
+    employees: "ജീവനക്കാർ",
     loginsToday: "ഇന്നത്തെ ലോഗിനുകൾ",
     pendingHelpRequests: "തീർപ്പാക്കാത്ത സഹായ അഭ്യർത്ഥനകൾ",
     success: "വിജയം",
@@ -669,7 +679,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
   },
   ta: {
     dashboard: "டாஷ்போர்டு",
-    dashboardSubtitle: "ப்ளேஸ்ஹோல்டர் மேலோட்டம் — பின்னர் நேரடி தரவுடன் இணைக்கப்படும்.",
+    dashboardSubtitle: "ஒரே பார்வையில் உங்கள் பணியிடம்.",
     favorites: "பிடித்தவை",
     frequentlyUsed: "அடிக்கடி பயன்படுத்தும் விருப்பங்கள்",
     searchPlaceholder: "மெனுவைத் தேடு…",
@@ -726,6 +736,7 @@ const translations: Record<LanguageCode, Record<TranslationKey, string>> = {
     saving: "சேமிக்கிறது…",
     loginActivity: "உள்நுழைவு செயல்பாடு (கடந்த 7 நாட்கள்)",
     activeUsers: "செயலில் உள்ள பயனர்கள்",
+    employees: "ஊழியர்கள்",
     loginsToday: "இன்றைய உள்நுழைவுகள்",
     pendingHelpRequests: "நிலுவையிலுள்ள உதவி கோரிக்கைகள்",
     success: "வெற்றி",

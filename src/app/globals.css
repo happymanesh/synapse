@@ -79,8 +79,16 @@
   --color-info-border: var(--info-border);
   --radius-token: var(--radius);
   --color-overlay: var(--overlay);
-  --font-sans: var(--font-montserrat);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+  /* Tightened from Tailwind's defaults, matching workPulse: enterprise data screens read
+     better dense, provided the hierarchy is real. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
 }
 
 /* Pre-hydration nicety only — once JS mounts, AppShellClient always sets an
