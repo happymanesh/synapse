@@ -37,6 +37,12 @@ Pure logic lives in `src/lib/sql-core.ts` and `src/lib/menu-core.ts` (no `server
 
 Repeated failures are capped in `src/lib/login-throttle-core.ts`: 5 per username and 20 per IP within a rolling 15 minutes, counted from the user's last successful sign-in so a success clears the slate. The check runs **before** the user lookup in `api/auth/login`, so an unknown username is throttled too — otherwise username enumeration is free. Lockouts are written to `login_log` as `LOCKED_OUT_USERNAME` / `LOCKED_OUT_IP`. The IP cap is deliberately looser because a branch office sits behind one NAT address. This matters more here than in most apps: usernames are employee codes and a first password is derivable from the username, so guesses must be bounded.
 
+### Report query timeout
+
+The `synapse_readonly` role carries `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`, set by migration `20261023120000_readonly_statement_timeout`. `assertSelectOnly` stops admin-authored report SQL writing and the role stops it structurally, but neither stops it *running forever* — one accidental cross join would pin a connection until someone noticed. A server-side cap cannot be forgotten at a call site the way an application timeout can.
+
+The migration is guarded on the role existing, because `DATABASE_URL_READONLY` is optional: an environment without a separate read-only role gets **no timeout** and must set one itself. The main connection is deliberately left uncapped, so writes and migrations are unaffected.
+
 ### Session validity
 
 `getSession()` is the only place a request's identity is established, and it re-checks `UserDetails.isActive` on every call (memoised per request with React `cache()`). The session JWT stays cryptographically valid for its full 8 hours, so without that check, deactivating someone in User Master would not take effect until their token expired. Never decode the session cookie directly to bypass it, and don't move the active-user check out to individual call sites — it will be forgotten on the next route someone adds.
