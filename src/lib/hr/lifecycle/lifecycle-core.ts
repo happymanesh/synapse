@@ -223,48 +223,24 @@ export function resolveHierarchy(
 }
 
 // ---------------------------------------------------------------------------
-// Profile sync (linked users) — designation, department, reporting manager
+// Last working date (linked users) — the ONLY HR field written onto an existing user
 // ---------------------------------------------------------------------------
 
-export interface ProfileFromHr {
-  designation: string | null;
-  department: string | null;
-  reportingManagerCode: string | null;
-}
-
-export interface UserProfile {
-  designation: string | null;
-  department: string | null;
-  reportingManagerCode: string | null;
-  reportingManagerSource: string | null;
-  hrManuallyManaged: boolean;
-}
-
-export type ProfileUpdate = Partial<{
-  designation: string;
-  department: string;
-  reportingManagerCode: string;
-  reportingManagerSource: "HR";
-}>;
-
 /**
- * What to copy from HR onto a linked user. Display facts only — nothing here grants access.
+ * SIHL, 2026-10-22: administrators and department heads edit User Master (designation,
+ * department, manager, contact details…) and the sync must never overwrite that. The one HR fact
+ * copied onto an existing user is the last working date, which mirrors HR exactly — set when HR
+ * records a resignation, moved if HR moves it, cleared if HR withdraws it. Access itself follows
+ * from decideLeaver(), not from this column. Manually managed users are never touched (rule 7).
  *
- * HR only ever fills or overwrites with a real value; an HR blank never wipes what is there.
- * That is what lets an administrator set the reporting manager today: Spine sends none, so the
- * admin value stands; once Spine does, HR takes over (source "HR"). A manually managed user is
- * never touched (rule 7).
+ * Returns the value to write, or undefined when nothing changes.
  */
-export function planProfileSync(hr: ProfileFromHr, user: UserProfile): ProfileUpdate | null {
-  if (user.hrManuallyManaged) return null;
-  const update: ProfileUpdate = {};
-  if (hr.designation && hr.designation !== user.designation) update.designation = hr.designation;
-  if (hr.department && hr.department !== user.department) update.department = hr.department;
-  if (hr.reportingManagerCode && (hr.reportingManagerCode !== user.reportingManagerCode || user.reportingManagerSource !== "HR")) {
-    update.reportingManagerCode = hr.reportingManagerCode;
-    update.reportingManagerSource = "HR";
-  }
-  return Object.keys(update).length ? update : null;
+export function planLastWorkingDateSync(
+  hrLastWorkingDate: IsoDate | null,
+  user: { lastWorkingDate: IsoDate | null; hrManuallyManaged: boolean },
+): IsoDate | null | undefined {
+  if (user.hrManuallyManaged) return undefined;
+  return hrLastWorkingDate === user.lastWorkingDate ? undefined : hrLastWorkingDate;
 }
 
 // ---------------------------------------------------------------------------

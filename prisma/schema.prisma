@@ -116,6 +116,8 @@ model UserDetails {
   reportingManagerSource  String?   @map("reporting_manager_source") // ADMIN | HR
   /// Forces a password change at the next sign-in (proxy + getSession enforce it).
   mustChangePassword      Boolean   @default(false) @map("must_change_password")
+  /// From HR: the only HR field the sync writes onto an existing user (SIHL, 2026-10-22).
+  lastWorkingDate         DateTime? @map("last_working_date") @db.Date
 
   company        CompanyMaster        @relation(fields: [companyCode], references: [companyCode])
   hierarchy      HierarchyMaster      @relation(fields: [hierarchyCode], references: [hierarchyCode])
@@ -1077,4 +1079,20 @@ model HrBranchHierarchyMap {
   hierarchy HierarchyMaster @relation(fields: [hierarchyCode], references: [hierarchyCode])
 
   @@map("hr_branch_hierarchy_map")
+}
+
+/// One press of Administration > HR Sync. At most one RUNNING (partial unique index in
+/// migration 20261022100000). summary holds counts only.
+model HrSyncJob {
+  id         Int       @id @default(autoincrement())
+  status     String    @default("RUNNING") // RUNNING | SUCCEEDED | FAILED
+  phase      String? // FETCHING | APPLYING | DONE
+  startedBy  String    @map("started_by")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  summary    Json?
+  error      String?
+
+  @@index([startedAt(sort: Desc)])
+  @@map("hr_sync_job")
 }

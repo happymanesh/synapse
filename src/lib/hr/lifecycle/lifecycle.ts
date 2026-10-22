@@ -12,7 +12,8 @@
  *   SUSPEND     sets is_suspended (HR freeze) — restorable;
  *   UNSUSPEND   clears a suspension this process set, when HR unfreezes;
  *   REVIEW      is queued in hr_lifecycle_action for an admin;
- *   profile     designation / department / reporting manager copied from HR.
+ *   last working date copied from HR — the ONLY HR field written onto an existing user;
+ *               everything else on User Master belongs to admins / department heads.
  * getSession() re-checks the block flags on every request, so a block takes effect at once.
  *
  * With `apply` AND `provision`, unlinked ACTIVE employees get an account: username SIHL-<code>,
@@ -31,7 +32,7 @@ import {
   HR_SUSPENDER,
   decideLifecycle,
   isUnprovisionedJoiner,
-  planProfileSync,
+  planLastWorkingDateSync,
   planProvision,
   resolveHierarchy,
   type FreezeDecision,
@@ -55,8 +56,8 @@ export interface LifecycleOutcome {
   /** True only when this run changed the user row for `decision` / `freeze`. */
   applied: boolean;
   freezeApplied: boolean;
-  /** Profile fields copied from HR this run (names only). */
-  profileUpdated: string[];
+  /** The user's last working date was (or, in a dry run, would be) changed to match HR. */
+  lastWorkingDateUpdated: boolean;
 }
 
 export interface ProvisionReport {
@@ -118,10 +119,7 @@ export async function runLifecycle(opts: LifecycleOptions): Promise<LifecycleRes
           hrManuallyManaged: true,
           isSuspended: true,
           suspendedBy: true,
-          designation: true,
-          department: true,
-          reportingManagerCode: true,
-          reportingManagerSource: true,
+          lastWorkingDate: true,
         },
       },
     },
@@ -204,7 +202,7 @@ export async function runLifecycle(opts: LifecycleOptions): Promise<LifecycleRes
     const { leaver: decision, freeze } = decideLifecycle({ ...emp, accountFrozen: e.accountFrozen }, user, opts.today, successor);
     let applied = false;
     let freezeApplied = false;
-    let profileUpdated: string[] = [];
+    let lastWorkingDateUpdated = false;
 
     if (opts.apply && decision.kind === "DEACTIVATE") {
       // Re-check active + not-manual in the WHERE: an admin may have changed either since the
@@ -260,14 +258,17 @@ export async function runLifecycle(opts: LifecycleOptions): Promise<LifecycleRes
       });
     }
 
-    const profile = planProfileSync(
-      { designation: e.designation, department: e.department, reportingManagerCode: e.reportingManagerCode },
-      user,
-    );
-    if (profile) {
-      profileUpdated = Object.keys(profile).filter((k) => k !== "reportingManagerSource");
+    const lwd = planLastWorkingDateSync(emp.lastWorkingDate, {
+      lastWorkingDate: fromDbDate(user.lastWorkingDate),
+      hrManuallyManaged: user.hrManuallyManaged,
+    });
+    if (lwd !== undefined) {
+      lastWorkingDateUpdated = true;
       if (opts.apply) {
-        await prisma.userDetails.updateMany({ where: { uid: user.uid, hrManuallyManaged: false }, data: profile });
+        await prisma.userDetails.updateMany({
+          where: { uid: user.uid, hrManuallyManaged: false },
+          data: { lastWorkingDate: lwd ? toDbDate(lwd) : null },
+        });
       }
     }
 
@@ -280,7 +281,7 @@ export async function runLifecycle(opts: LifecycleOptions): Promise<LifecycleRes
       freeze,
       applied,
       freezeApplied,
-      profileUpdated,
+      lastWorkingDateUpdated,
     });
   }
   return { outcomes, unprovisionedJoiners, provisioning, onLeave };

@@ -33,6 +33,10 @@ Report/filter query text is administrator-authored and executed dynamically, so 
 
 Pure logic lives in `src/lib/sql-core.ts` and `src/lib/menu-core.ts` (no `server-only`, no Prisma import) so it can be unit tested; `report-sql.ts`, `menu.ts` and `user-shell.ts` are the DB-backed layers around them. Any new access or scoping *rule* belongs in a `-core` module with a test, not inline in a query. Run `npm test`.
 
+### Sign-in lockout
+
+Repeated failures are capped in `src/lib/login-throttle-core.ts`: 5 per username and 20 per IP within a rolling 15 minutes, counted from the user's last successful sign-in so a success clears the slate. The check runs **before** the user lookup in `api/auth/login`, so an unknown username is throttled too — otherwise username enumeration is free. Lockouts are written to `login_log` as `LOCKED_OUT_USERNAME` / `LOCKED_OUT_IP`. The IP cap is deliberately looser because a branch office sits behind one NAT address. This matters more here than in most apps: usernames are employee codes and a first password is derivable from the username, so guesses must be bounded.
+
 ### Session validity
 
 `getSession()` is the only place a request's identity is established, and it re-checks `UserDetails.isActive` on every call (memoised per request with React `cache()`). The session JWT stays cryptographically valid for its full 8 hours, so without that check, deactivating someone in User Master would not take effect until their token expired. Never decode the session cookie directly to bypass it, and don't move the active-user check out to individual call sites — it will be forgotten on the next route someone adds.

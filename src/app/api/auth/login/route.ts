@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getClientIp, isIpAllowed } from "@/lib/ip-match";
 import { createSession } from "@/lib/session";
 import { accountBlock } from "@/lib/auth-core";
+import { countFrom, lockoutMessage, lockoutReason, windowStart } from "@/lib/login-throttle-core";
 
 async function logAttempt(params: {
   username: string;
@@ -35,6 +36,41 @@ export async function POST(request: NextRequest) {
 
   if (!username || !password) {
     return NextResponse.json({ error: "Username and password are required." }, { status: 400 });
+  }
+
+  // Checked before the user lookup, so an unknown username is throttled too — otherwise
+  // username enumeration stays free. Matched case-insensitively, as the lookup below is.
+  const now = new Date();
+  const lastSuccess = await prisma.loginLog.findFirst({
+    where: { username: { equals: username, mode: "insensitive" }, status: "SUCCESS" },
+    orderBy: { loginTime: "desc" },
+    select: { loginTime: true },
+  });
+  const [usernameFailures, ipFailures] = await Promise.all([
+    prisma.loginLog.count({
+      where: {
+        username: { equals: username, mode: "insensitive" },
+        status: "FAILURE",
+        loginTime: { gt: countFrom(now, lastSuccess?.loginTime ?? null) },
+      },
+    }),
+    prisma.loginLog.count({
+      where: { ipAddress, status: "FAILURE", loginTime: { gt: windowStart(now) } },
+    }),
+  ]);
+  const locked = lockoutReason(usernameFailures, ipFailures);
+  if (locked) {
+    // Logged as an attempt in its own right: a lockout that leaves no trace is invisible
+    // to whoever has to work out afterwards what happened.
+    await logAttempt({
+      username,
+      userUid: null,
+      status: "FAILURE",
+      failureReason: locked === "USERNAME" ? "LOCKED_OUT_USERNAME" : "LOCKED_OUT_IP",
+      ipAddress,
+      userAgent,
+    });
+    return NextResponse.json({ error: lockoutMessage(locked) }, { status: 429 });
   }
 
   const user = await prisma.userDetails.findFirst({

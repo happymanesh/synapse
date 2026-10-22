@@ -221,3 +221,18 @@ export const notificationSchema = z.object({
   isActive: z.boolean().default(true),
 });
 export const notificationUpdateSchema = notificationSchema;
+
+/**
+ * HR branch/department -> Synapse company + hierarchy (Administration > HR Mapping). A blank
+ * department means "any department in this branch"; an exact department row wins over it.
+ * Uniqueness (company + branch + department, case-insensitive) is a database index.
+ */
+const blankToNull = (v: unknown) => (typeof v === "string" && v.trim() === "" ? null : v);
+export const hrMappingSchema = z.object({
+  hrCompanyCode: z.string().trim().min(1, "HR company is required."),
+  hrBranch: z.string().trim().min(1, "HR branch is required."),
+  hrDepartment: z.preprocess(blankToNull, z.string().trim().min(1).nullable().optional()),
+  companyCode: z.string().min(1),
+  hierarchyCode: z.string().min(1),
+  isActive: z.boolean(),
+});

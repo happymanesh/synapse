@@ -26,11 +26,28 @@ export default async function UsersAdminPage() {
       required: true,
       options: companies.map((c) => ({ value: c.companyCode, label: c.companyName })),
     },
-    { name: "username", label: "Username", type: "text", required: true, hideOnEdit: true },
-    { name: "password", label: "Password", type: "password", required: true, hideOnEdit: true },
+    { name: "employeeCode", label: "Employee Code", type: "text", required: true },
+    // Suggested from the employee code by the same rule the HR sync provisions with
+    // (SIHL-0720 -> SIHL@0720), and overwritable: an admin who types their own value
+    // keeps it. Employee Code is declared above so it is filled first.
+    {
+      name: "username",
+      label: "Username",
+      type: "text",
+      required: true,
+      hideOnEdit: true,
+      deriveFrom: { field: "employeeCode", rule: "employeeUsername" },
+    },
+    {
+      name: "password",
+      label: "Password",
+      type: "password",
+      required: true,
+      hideOnEdit: true,
+      deriveFrom: { field: "username", rule: "initialPassword" },
+    },
     // Employee profile: workPulse links users to employees by employee code, and needs
     // designation, department and manager — none of which Synapse held before.
-    { name: "employeeCode", label: "Employee Code", type: "text", required: true },
     { name: "designation", label: "Designation", type: "text" },
     { name: "department", label: "Department", type: "text" },
     { name: "reportingManagerCode", label: "Reporting Manager (employee code)", type: "text" },
@@ -65,6 +82,7 @@ export default async function UsersAdminPage() {
     { key: "hierarchyName", label: "Hierarchy" },
     { key: "clientCategoryName", label: "Category" },
     { key: "roles", label: "Roles" },
+    { key: "lastWorkingDay", label: "Last Working Day" },
     { key: "isActive", label: "Active" },
   ];
 

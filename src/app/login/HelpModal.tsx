@@ -4,8 +4,15 @@ import { useState } from "react";
 
 type SubFlow = "forgot-userid" | "reset-password";
 
-export default function HelpModal({ onClose }: { onClose: () => void }) {
-  const [flow, setFlow] = useState<SubFlow>("forgot-userid");
+export default function HelpModal({
+  onClose,
+  initialFlow = "forgot-userid",
+}: {
+  onClose: () => void;
+  /** Which recovery the user actually asked for, so the modal opens on it. */
+  initialFlow?: SubFlow;
+}) {
+  const [flow, setFlow] = useState<SubFlow>(initialFlow);
   const [username, setUsername] = useState("");
   const [contact, setContact] = useState("");
   const [submitting, setSubmitting] = useState(false);

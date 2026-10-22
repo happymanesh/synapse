@@ -10,10 +10,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   await requireAdmin();
   const { id } = await context.params;
   const uid = Number(id);
+  console.error("[diag reset-password] rawId=%o uid=%o isNaN=%o", id, uid, Number.isNaN(uid));
   try {
     const { password } = passwordResetSchema.parse(await request.json());
 
     const user = await prisma.userDetails.findUnique({ where: { uid } });
+    console.error("[diag reset-password] lookup uid=%o found=%o", uid, !!user);
     if (!user) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }

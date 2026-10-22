@@ -2,7 +2,7 @@
  * Process B — apply HR facts (hr_employee) to Synapse users. Source-agnostic.
  *
  *   npm run hr:lifecycle                                   # dry run: report only, writes nothing
- *   npm run hr:lifecycle -- --apply                        # deactivate / suspend / unsuspend / review, sync profiles
+ *   npm run hr:lifecycle -- --apply                        # deactivate / suspend / unsuspend / review, last working date
  *   npm run hr:lifecycle -- --apply --provision            # ...and create accounts for new joiners
  *   npm run hr:lifecycle -- --apply --provision --send-email   # ...and email them their login
  *
@@ -38,7 +38,7 @@ async function main() {
   for (const o of r.outcomes) {
     counts[o.decision.kind] = (counts[o.decision.kind] ?? 0) + 1;
     if (o.freeze.kind !== "NONE") counts[o.freeze.kind] = (counts[o.freeze.kind] ?? 0) + 1;
-    if (o.profileUpdated.length) counts.PROFILE = (counts.PROFILE ?? 0) + 1;
+    if (o.lastWorkingDateUpdated) counts.LAST_WORKING_DATE = (counts.LAST_WORKING_DATE ?? 0) + 1;
   }
   console.log(`  linked employees: ${r.outcomes.length}`, counts);
 
@@ -62,8 +62,8 @@ async function main() {
       const tag = o.freezeApplied ? (o.freeze.kind === "SUSPEND" ? "SUSPENDED" : "UNSUSPENDED") : apply ? `${o.freeze.kind} (no change)` : `WOULD ${o.freeze.kind}`;
       console.log(`  ${tag.padEnd(22)} ${o.sourceEmployeeId} ${o.username} — ${o.freeze.reason}`);
     }
-    if (o.profileUpdated.length) {
-      console.log(`  ${(apply ? "PROFILE UPDATED" : "WOULD UPDATE PROFILE").padEnd(22)} ${o.sourceEmployeeId} ${o.username} — ${o.profileUpdated.join(", ")}`);
+    if (o.lastWorkingDateUpdated) {
+      console.log(`  ${(apply ? "LAST WORKING DATE SET" : "WOULD SET LAST WORKING DATE").padEnd(22)} ${o.sourceEmployeeId} ${o.username}`);
     }
     if (o.decision.kind === "NONE") continue;
     const tag =

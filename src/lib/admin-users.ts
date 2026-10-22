@@ -1,5 +1,6 @@
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { formatDate } from "@/lib/report-format";
 
 export interface UsersPageParams {
   page: number;
@@ -52,6 +53,9 @@ export async function getUsersPage({ page, pageSize, company, search }: UsersPag
       hierarchyName: hierarchy.hierarchyName,
       clientCategoryName: clientCategory.clientCategoryName,
       roles: userRoles.map((ur) => ur.role.roleName).join(", ") || "—",
+      // From HR (the only HR field the sync writes on an existing user); preformatted because
+      // column render functions cannot cross from this server-rendered page to the table.
+      lastWorkingDay: rest.lastWorkingDate ? formatDate(rest.lastWorkingDate) : "—",
     };
   });
 

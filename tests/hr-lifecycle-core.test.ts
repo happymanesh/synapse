@@ -14,7 +14,7 @@ import {
   type LinkedUser,
 } from "../src/lib/hr/lifecycle/lifecycle-core";
 import { employeeUsername, initialEmployeePassword, planEmployeeUsername } from "../src/lib/hr/lifecycle/username-core";
-import { planProfileSync, planProvision } from "../src/lib/hr/lifecycle/lifecycle-core";
+import { planLastWorkingDateSync, planProvision } from "../src/lib/hr/lifecycle/lifecycle-core";
 import { checkPasswordPolicy } from "../src/lib/password-policy";
 import { employeeWelcomeEmail } from "../src/lib/mail/employee-welcome.template";
 
@@ -259,30 +259,22 @@ describe("first password (SIHL rule: hyphen -> @)", () => {
   });
 });
 
-describe("profile sync from HR", () => {
-  const user = { designation: "Analyst", department: "Research", reportingManagerCode: null, reportingManagerSource: null, hrManuallyManaged: false };
+describe("last working date — the only HR field written onto an existing user", () => {
+  const user = { lastWorkingDate: null, hrManuallyManaged: false };
 
-  test("copies changed HR values; an HR blank never wipes", () => {
-    assert.deepEqual(planProfileSync({ designation: "Sr Analyst", department: null, reportingManagerCode: null }, user), { designation: "Sr Analyst" });
-    assert.equal(planProfileSync({ designation: null, department: null, reportingManagerCode: null }, user), null);
+  test("set when HR records a resignation, moved when HR moves it, cleared when HR withdraws it", () => {
+    assert.equal(planLastWorkingDateSync("2026-10-31", user), "2026-10-31");
+    assert.equal(planLastWorkingDateSync("2026-11-15", { ...user, lastWorkingDate: "2026-10-31" }), "2026-11-15");
+    assert.equal(planLastWorkingDateSync(null, { ...user, lastWorkingDate: "2026-10-31" }), null);
   });
 
-  test("an admin-set manager stands until HR supplies one, then HR takes over", () => {
-    const adminSet = { ...user, reportingManagerCode: "0101", reportingManagerSource: "ADMIN" };
-    assert.equal(planProfileSync({ designation: "Analyst", department: "Research", reportingManagerCode: null }, adminSet), null);
-    assert.deepEqual(planProfileSync({ designation: "Analyst", department: "Research", reportingManagerCode: "0202" }, adminSet), {
-      reportingManagerCode: "0202",
-      reportingManagerSource: "HR",
-    });
-    // Same code but admin-sourced: HR claims it.
-    assert.deepEqual(planProfileSync({ designation: "Analyst", department: "Research", reportingManagerCode: "0101" }, adminSet), {
-      reportingManagerCode: "0101",
-      reportingManagerSource: "HR",
-    });
+  test("unchanged means nothing to write", () => {
+    assert.equal(planLastWorkingDateSync("2026-10-31", { ...user, lastWorkingDate: "2026-10-31" }), undefined);
+    assert.equal(planLastWorkingDateSync(null, user), undefined);
   });
 
   test("manually managed users are never touched", () => {
-    assert.equal(planProfileSync({ designation: "X", department: "Y", reportingManagerCode: "0202" }, { ...user, hrManuallyManaged: true }), null);
+    assert.equal(planLastWorkingDateSync("2026-10-31", { ...user, hrManuallyManaged: true }), undefined);
   });
 });
 

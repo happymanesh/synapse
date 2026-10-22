@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { buildDownloadFilename } from "@/lib/download";
 import { useLanguage } from "@/lib/i18n";
+// Pure, no server-only and no Prisma import, so the same rule the HR lifecycle uses to
+// provision a user also drives the admin form — one definition, not two.
+import { employeeUsername, initialEmployeePassword } from "@/lib/hr/lifecycle/username-core";
 
 export type FieldType = "text" | "number" | "password" | "select" | "checkbox" | "textarea" | "datetime-local";
 
@@ -26,6 +29,20 @@ export interface ShowWhen {
   notEmpty?: true;
 }
 
+/**
+ * Prefills a field from another field's value, by named rule rather than by callback —
+ * same reason as ShowWhen: a function prop cannot cross the RSC boundary.
+ *
+ * Derivation only ever fills a field the admin has not typed in. The moment they edit it
+ * themselves it stops being recomputed, so a suggested username or first password is a
+ * starting point and never a cage.
+ */
+export interface DeriveFrom {
+  /** The field whose value feeds the rule. */
+  field: string;
+  rule: "employeeUsername" | "initialPassword";
+}
+
 export interface FieldConfig {
   name: string;
   label: string;
@@ -37,6 +54,8 @@ export interface FieldConfig {
   defaultValue?: string | number | boolean;
   /** Hides the field unless the condition holds. Hidden fields are cleared on submit. */
   showWhen?: ShowWhen;
+  /** Prefills this field from another, until the admin edits it. */
+  deriveFrom?: DeriveFrom;
   /**
    * Renders this field beside the preceding one instead of on its own row. Grouping runs
    * after `showWhen` filtering, so if the field it would pair with is hidden, this one
@@ -53,6 +72,51 @@ function isFieldVisible(field: FieldConfig, values: Record<string, string | numb
   if (cond.equals === undefined) return true;
   const allowed = Array.isArray(cond.equals) ? cond.equals : [cond.equals];
   return allowed.includes(current);
+}
+
+/**
+ * Recomputes every derived field the admin has not taken over, following chains
+ * (employee code -> username -> first password) until nothing else changes.
+ *
+ * `justEdited` is excluded even before it lands in `touched`, because the state update
+ * that marks it touched has not been applied yet when this runs.
+ */
+function applyDerivations(
+  fields: FieldConfig[],
+  values: Record<string, string | number | boolean>,
+  touched: ReadonlySet<string>,
+  justEdited?: string
+): Record<string, string | number | boolean> {
+  const derived = fields.filter((f) => f.deriveFrom);
+  if (derived.length === 0) return values;
+
+  const next = { ...values };
+  // Bounded rather than while(changed): a mis-specified config could otherwise cycle.
+  for (let pass = 0; pass < derived.length + 1; pass++) {
+    let changed = false;
+    for (const f of derived) {
+      if (touched.has(f.name) || f.name === justEdited) continue;
+      const source = String(next[f.deriveFrom!.field] ?? "").trim();
+      const value = source === "" ? "" : deriveValue(f.deriveFrom!.rule, source);
+      if (next[f.name] !== value) {
+        next[f.name] = value;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return next;
+}
+
+function deriveValue(rule: DeriveFrom["rule"], source: string): string {
+  if (rule === "employeeUsername") {
+    const r = employeeUsername(source);
+    // A code that doesn't fit the rule suggests nothing rather than guessing — the admin
+    // sees an empty field and types what they want, which is the documented behaviour
+    // for INVALID in username-core.
+    return r.kind === "OK" ? r.username : "";
+  }
+  return initialEmployeePassword(source);
 }
 
 export interface ColumnConfig {
@@ -104,6 +168,8 @@ export default function AdminCrudTable({
   const [mode, setMode] = useState<"add" | "edit" | null>(null);
   const [editingRow, setEditingRow] = useState<Row | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string | number | boolean>>({});
+  /** Fields the admin has edited by hand; derivation leaves these alone from then on. */
+  const [touched, setTouched] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -163,7 +229,8 @@ export default function AdminCrudTable({
         defaults[f.name] = f.defaultValue ?? (f.type === "checkbox" ? true : "");
       }
     }
-    setFormValues(defaults);
+    setTouched(new Set());
+    setFormValues(applyDerivations(fields, defaults, new Set()));
     setEditingRow(null);
     setMode("add");
     setError(null);
@@ -185,6 +252,8 @@ export default function AdminCrudTable({
         values[f.name] = v;
       }
     }
+    // An existing row's stored values are facts, not suggestions.
+    setTouched(new Set(Object.keys(values)));
     setFormValues(values);
     setEditingRow(row);
     setMode("edit");
@@ -200,7 +269,8 @@ export default function AdminCrudTable({
   }
 
   function updateField(name: string, value: string | number | boolean) {
-    setFormValues((v) => ({ ...v, [name]: value }));
+    setTouched((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+    setFormValues((v) => applyDerivations(fields, { ...v, [name]: value }, touched, name));
     setFieldErrors((prev) => {
       if (!prev[name]) return prev;
       const next = { ...prev };
@@ -309,7 +379,7 @@ export default function AdminCrudTable({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <input
             type="text"
             value={searchTerm}
@@ -356,35 +426,42 @@ export default function AdminCrudTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-surface text-xs text-foreground/60 uppercase">
+      {/* `w-max min-w-full`, not `w-full`: a full-width table can never overflow its scroll
+          container, so rather than scrolling it squeezes the columns and wraps every cell —
+          which is what turned one line of data into a ~120px row and pushed the last column
+          out of reach entirely. Natural width plus nowrap cells makes the scrollbar real. */}
+      <div className="max-h-[70vh] overflow-auto rounded-lg border border-border">
+        <table className="w-max min-w-full text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-surface text-xs text-foreground/60 uppercase shadow-[inset_0_-1px_0_var(--border-color)]">
             <tr>
               {columns.map((c) => (
-                <th key={c.key} className="px-3 py-2 font-medium">
+                <th key={c.key} className="whitespace-nowrap px-3 py-2.5 font-medium">
                   {c.label}
                 </th>
               ))}
-              <th className="px-3 py-2 font-medium">{t("actions")}</th>
+              <th className="whitespace-nowrap px-3 py-2.5 font-medium">{t("actions")}</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.length === 0 && (
               <tr>
-                <td colSpan={columns.length + 1} className="px-3 py-6 text-center text-foreground/50">
+                <td colSpan={columns.length + 1} className="px-3 py-10 text-center text-foreground/50">
                   {t("noRecordsYet")}
                 </td>
               </tr>
             )}
             {visibleRows.map((row) => (
-              <tr key={String(row[idField])} className="border-t border-border">
+              <tr
+                key={String(row[idField])}
+                className="border-t border-border transition-colors hover:bg-surface/60"
+              >
                 {columns.map((c) => (
-                  <td key={c.key} className="px-3 py-2">
+                  <td key={c.key} className="whitespace-nowrap px-3 py-2">
                     {c.render ? c.render(row) : formatCellText(row[c.key])}
                   </td>
                 ))}
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-2">
+                <td className="whitespace-nowrap px-3 py-2">
+                  <div className="flex items-center gap-1.5">
                     {compactActions ? (
                       <>
                         <button

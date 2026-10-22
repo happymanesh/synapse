@@ -80,6 +80,85 @@ async function main() {
   // Named demo accounts exist only in a demo seed. A production database gets the reference
   // data plus one administrator, and real staff accounts are created in User Master.
   let demoUserUid: number | null = null;
+  // --- workPulse: registered here so every environment gets it on deploy, rather than
+  // being hand-entered per environment (which is why UAT had it missing while local had it).
+  //
+  // The codes deliberately match the rows already created by hand locally ("WorkPulse",
+  // not "WORKPULSE") so this upserts them instead of creating a second app beside them.
+  //
+  // workPulse is its own deployment federated to Synapse for identity (see its
+  // docs/synapse-integration.md), so it is an EXTERNAL link, not a route in this app. The
+  // URL must come from the environment: a hardcoded localhost:3200 would ship to UAT and
+  // Railway and send every user to their own machine.
+  const WORKPULSE_URL = process.env.WORKPULSE_URL ?? "http://localhost:3200";
+
+  await prisma.appMaster.upsert({
+    where: { appCode: "WorkPulse" },
+    update: { appName: "WorkPulse", icon: "📋", displayOrder: 4, isActive: true },
+    create: {
+      appCode: "WorkPulse",
+      appName: "WorkPulse",
+      companyCode: "SIHL",
+      icon: "📋",
+      description: "Task, project and work management.",
+      displayOrder: 4,
+      isActive: true,
+    },
+  });
+
+  await prisma.menuMaster.upsert({
+    where: { menuCode: "WorkPulse" },
+    update: {
+      appCode: "WorkPulse",
+      menuName: "WorkPulse",
+      menuType: "EXTERNAL",
+      externalUrl: WORKPULSE_URL,
+      isActive: true,
+    },
+    create: {
+      menuCode: "WorkPulse",
+      appCode: "WorkPulse",
+      parentMenuCode: null,
+      menuName: "WorkPulse",
+      icon: "📋",
+      menuType: "EXTERNAL",
+      externalUrl: WORKPULSE_URL,
+      level: 1,
+      displayOrder: 10,
+      companyCode: "SIHL",
+      hierarchyCode: "0200",
+      isActive: true,
+    },
+  });
+
+  // A grant only takes effect for users whose OWN hierarchy matches it, so one row per
+  // staff hierarchy — otherwise the app is invisible to everyone outside 0200, which is
+  // exactly how it went missing before.
+  const WORKPULSE_GRANTS: { roleCode: string; hierarchyCode: string }[] = [
+    { roleCode: "ADMIN", hierarchyCode: "9999" },
+    ...["0000", "0100", "0200", "0300"].map((hierarchyCode) => ({ roleCode: "EMPLOYEE", hierarchyCode })),
+  ];
+  for (const g of WORKPULSE_GRANTS) {
+    await prisma.roleMenuMap.upsert({
+      where: {
+        roleCode_menuCode_companyCode_hierarchyCode: {
+          roleCode: g.roleCode,
+          menuCode: "WorkPulse",
+          companyCode: "SIHL",
+          hierarchyCode: g.hierarchyCode,
+        },
+      },
+      update: { isActive: true },
+      create: {
+        roleCode: g.roleCode,
+        menuCode: "WorkPulse",
+        companyCode: "SIHL",
+        hierarchyCode: g.hierarchyCode,
+        isActive: true,
+      },
+    });
+  }
+
   if (SEED_DEMO) {
     const user = await prisma.userDetails.upsert({
       where: { username: "Manesh001" },
@@ -233,6 +312,9 @@ async function main() {
       level: 2,
       order: 12,
     },
+    // HR integration (SIHL, 2026-10-22): run the HR sync on demand, and map HR branches to hierarchies.
+    { code: "ADMIN_HR_SYNC", parent: "ADMIN_ROOT", name: "HR Sync", icon: "🔄", route: "/admin/hr-sync", level: 2, order: 13 },
+    { code: "ADMIN_HR_MAPPING", parent: "ADMIN_ROOT", name: "HR Mapping", icon: "🧭", route: "/admin/hr-mapping", level: 2, order: 14 },
   ];
 
   for (const m of ADMIN_MENUS) {
