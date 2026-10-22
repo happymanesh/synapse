@@ -1096,3 +1096,30 @@ model HrSyncJob {
   @@index([startedAt(sort: Desc)])
   @@map("hr_sync_job")
 }
+
+/// Who changed what, and when. Written by the Prisma extension in src/lib/audit.ts rather
+/// than by each route, because there are 34 admin route files performing writes and the
+/// 35th would forget. Append-only by convention: nothing in the application updates or
+/// deletes a row here.
+model AuditLog {
+  id            Int      @id @default(autoincrement())
+  occurredAt    DateTime @default(now()) @map("occurred_at")
+  /// Null only for a change made outside a signed-in request (a script), recorded as SYSTEM.
+  actorUid      Int?     @map("actor_uid")
+  actorUsername String   @map("actor_username")
+  /// CREATE | UPDATE | DELETE
+  action        String
+  /// Prisma model name, e.g. ReportDefinition.
+  model         String
+  /// Stringified primary key of the affected row; null for a bulk write affecting many.
+  recordId      String?  @map("record_id")
+  /// UPDATE: { field: { from, to } } for changed fields only. CREATE/DELETE: the row.
+  /// Password hashes and similar are redacted before they reach here — see audit-core.
+  changes       Json?
+  ipAddress     String?  @map("ip_address")
+
+  @@index([occurredAt])
+  @@index([model, occurredAt])
+  @@index([actorUid, occurredAt])
+  @@map("audit_log")
+}

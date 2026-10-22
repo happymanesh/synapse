@@ -1,5 +1,6 @@
 import { PrismaClient } from "../../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { withAudit } from "@/lib/audit";
 
 declare global {
   var __prisma: PrismaClient | undefined;
@@ -8,7 +9,10 @@ declare global {
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 
-export const prisma = globalThis.__prisma ?? new PrismaClient({ adapter });
+// Every write through this client is recorded (src/lib/audit.ts). Applied here rather
+// than at the call sites so a route added later is audited without anyone remembering to
+// opt in. prismaReadOnly below is deliberately NOT wrapped: it cannot write.
+export const prisma = globalThis.__prisma ?? withAudit(new PrismaClient({ adapter }));
 
 /**
  * Second connection used ONLY to execute administrator-authored report queries.

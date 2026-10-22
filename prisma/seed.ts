@@ -315,6 +315,7 @@ async function main() {
     // HR integration (SIHL, 2026-10-22): run the HR sync on demand, and map HR branches to hierarchies.
     { code: "ADMIN_HR_SYNC", parent: "ADMIN_ROOT", name: "HR Sync", icon: "🔄", route: "/admin/hr-sync", level: 2, order: 13 },
     { code: "ADMIN_HR_MAPPING", parent: "ADMIN_ROOT", name: "HR Mapping", icon: "🧭", route: "/admin/hr-mapping", level: 2, order: 14 },
+    { code: "ADMIN_AUDIT", parent: "ADMIN_ROOT", name: "Audit Trail", icon: "📜", route: "/admin/audit", level: 2, order: 15 },
   ];
 
   for (const m of ADMIN_MENUS) {

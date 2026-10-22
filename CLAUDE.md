@@ -37,6 +37,14 @@ Pure logic lives in `src/lib/sql-core.ts` and `src/lib/menu-core.ts` (no `server
 
 Repeated failures are capped in `src/lib/login-throttle-core.ts`: 5 per username and 20 per IP within a rolling 15 minutes, counted from the user's last successful sign-in so a success clears the slate. The check runs **before** the user lookup in `api/auth/login`, so an unknown username is throttled too — otherwise username enumeration is free. Lockouts are written to `login_log` as `LOCKED_OUT_USERNAME` / `LOCKED_OUT_IP`. The IP cap is deliberately looser because a branch office sits behind one NAT address. This matters more here than in most apps: usernames are employee codes and a first password is derivable from the username, so guesses must be bounded.
 
+### Audit trail
+
+Every administrative write is recorded in `audit_log` by a Prisma client extension (`src/lib/audit.ts`), applied once in `db.ts` — **not** by a helper called from each route. There are 34 route files under `src/app/api/admin` that write; a per-route call is 34 chances to forget, and the 35th route would silently go unaudited. Same reasoning that put the `isActive` check inside `getSession()`.
+
+Deliberately not recorded: writes with no signed-in request behind them (the seed performs hundreds of upserts on every deploy, and the HR sync has `hr_ingest_run` / `hr_employee_change` of its own), and the high-volume append-only logs listed in `SKIPPED_MODELS`. Field names matching `password|secret|token|key|salt` are redacted before anything is written, because the audit screen is readable by more people than the tables it describes.
+
+The trail is read-only end to end: `/admin/audit` offers no mutation and `/api/admin/audit` exposes only `GET`. Nothing in the application updates or deletes an `audit_log` row. If you add a write path that must not be audited, add the model to `SKIPPED_MODELS` rather than bypassing `prisma`.
+
 ### Report query timeout
 
 The `synapse_readonly` role carries `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`, set by migration `20261023120000_readonly_statement_timeout`. `assertSelectOnly` stops admin-authored report SQL writing and the role stops it structurally, but neither stops it *running forever* — one accidental cross join would pin a connection until someone noticed. A server-side cap cannot be forgotten at a call site the way an application timeout can.
