@@ -55,6 +55,28 @@ export function redact(value: unknown, depth = 0): unknown {
   return out;
 }
 
+/**
+ * Fields the database maintains itself, excluded from the diff.
+ *
+ * `modifiedDate` and `updatedOn` are Prisma `@updatedAt` columns, rewritten on every
+ * single update. Left in, every write records a change — so an update that altered nothing
+ * a human cares about still produces a row, and the log fills with timestamp noise that
+ * buries the changes an auditor is looking for. Observed in the very first row this trail
+ * ever wrote, which recorded a modifiedDate shift and nothing else.
+ *
+ * The HR sync's bookkeeping columns are here for the same reason: they move on every
+ * ingest run regardless of whether the employee changed.
+ */
+const MACHINE_FIELDS = new Set([
+  "modifiedDate",
+  "updatedOn",
+  "updatedBy",
+  "lastSeenAt",
+  "firstSeenAt",
+  "lastChangedAt",
+  "lastRunId",
+]);
+
 export interface FieldChange {
   from: unknown;
   to: unknown;
@@ -74,6 +96,7 @@ export function diffRecords(
   if (!before || !after) return {};
   const changes: Record<string, FieldChange> = {};
   for (const key of Object.keys(after)) {
+    if (MACHINE_FIELDS.has(key)) continue;
     const a = normalise(before[key]);
     const b = normalise(after[key]);
     if (a !== b) {

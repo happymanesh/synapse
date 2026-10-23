@@ -83,6 +83,34 @@ describe("diffRecords", () => {
     assert.ok("email" in diffRecords({ email: "a@x.com" }, { email: null }));
   });
 
+  test("Prisma's @updatedAt columns are not changes", () => {
+    // Observed for real: the first row this trail ever wrote recorded a modifiedDate
+    // shift and nothing else. modifiedDate and updatedOn are rewritten on every update,
+    // so left in the diff every write looks like a change and the log fills with noise.
+    const changes = diffRecords(
+      { fullName: "A", modifiedDate: new Date("2026-10-22T19:48:00Z") },
+      { fullName: "A", modifiedDate: new Date("2026-10-22T20:25:00Z") }
+    );
+    assert.deepEqual(changes, {});
+  });
+
+  test("a real change is still recorded alongside a timestamp bump", () => {
+    const changes = diffRecords(
+      { fullName: "A", updatedOn: new Date("2026-10-22T19:48:00Z") },
+      { fullName: "B", updatedOn: new Date("2026-10-22T20:25:00Z") }
+    );
+    assert.deepEqual(Object.keys(changes), ["fullName"]);
+  });
+
+  test("the HR sync's bookkeeping columns are not changes either", () => {
+    // These move on every ingest run whether or not the employee did.
+    const changes = diffRecords(
+      { branch: "HEAD OFFICE", lastSeenAt: new Date(1), lastRunId: 1, lastChangedAt: new Date(1) },
+      { branch: "HEAD OFFICE", lastSeenAt: new Date(2), lastRunId: 2, lastChangedAt: new Date(2) }
+    );
+    assert.deepEqual(changes, {});
+  });
+
   test("a missing before or after yields nothing rather than a false full-row diff", () => {
     assert.deepEqual(diffRecords(null, { a: 1 }), {});
     assert.deepEqual(diffRecords({ a: 1 }, null), {});
