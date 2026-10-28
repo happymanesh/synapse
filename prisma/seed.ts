@@ -131,34 +131,6 @@ async function main() {
     },
   });
 
-  // A grant only takes effect for users whose OWN hierarchy matches it, so one row per
-  // staff hierarchy — otherwise the app is invisible to everyone outside 0200, which is
-  // exactly how it went missing before.
-  const WORKPULSE_GRANTS: { roleCode: string; hierarchyCode: string }[] = [
-    { roleCode: "ADMIN", hierarchyCode: "9999" },
-    ...["0000", "0100", "0200", "0300"].map((hierarchyCode) => ({ roleCode: "EMPLOYEE", hierarchyCode })),
-  ];
-  for (const g of WORKPULSE_GRANTS) {
-    await prisma.roleMenuMap.upsert({
-      where: {
-        roleCode_menuCode_companyCode_hierarchyCode: {
-          roleCode: g.roleCode,
-          menuCode: "WorkPulse",
-          companyCode: "SIHL",
-          hierarchyCode: g.hierarchyCode,
-        },
-      },
-      update: { isActive: true },
-      create: {
-        roleCode: g.roleCode,
-        menuCode: "WorkPulse",
-        companyCode: "SIHL",
-        hierarchyCode: g.hierarchyCode,
-        isActive: true,
-      },
-    });
-  }
-
   if (SEED_DEMO) {
     const user = await prisma.userDetails.upsert({
       where: { username: "Manesh001" },
@@ -242,6 +214,42 @@ async function main() {
       isActive: true,
     },
   });
+
+  // EMPLOYEE was only ever hand-created locally, so the WorkPulse grants below failed the
+  // role_menu_map foreign key on any other database. Values match the local row.
+  await prisma.roleMaster.upsert({
+    where: { roleCode: "EMPLOYEE" },
+    update: {},
+    create: { roleCode: "EMPLOYEE", roleName: "Employee", companyCode: "SIHL", hierarchyCode: "0200", isActive: true },
+  });
+
+  // A grant only takes effect for users whose OWN hierarchy matches it, so one row per
+  // staff hierarchy — otherwise the app is invisible to everyone outside 0200, which is
+  // exactly how it went missing before.
+  const WORKPULSE_GRANTS: { roleCode: string; hierarchyCode: string }[] = [
+    { roleCode: "ADMIN", hierarchyCode: "9999" },
+    ...["0000", "0100", "0200", "0300"].map((hierarchyCode) => ({ roleCode: "EMPLOYEE", hierarchyCode })),
+  ];
+  for (const g of WORKPULSE_GRANTS) {
+    await prisma.roleMenuMap.upsert({
+      where: {
+        roleCode_menuCode_companyCode_hierarchyCode: {
+          roleCode: g.roleCode,
+          menuCode: "WorkPulse",
+          companyCode: "SIHL",
+          hierarchyCode: g.hierarchyCode,
+        },
+      },
+      update: { isActive: true },
+      create: {
+        roleCode: g.roleCode,
+        menuCode: "WorkPulse",
+        companyCode: "SIHL",
+        hierarchyCode: g.hierarchyCode,
+        isActive: true,
+      },
+    });
+  }
 
   // Two sample apps so the app switcher is meaningful out of the box. Administration
   // menus deliberately keep appCode = null (global) — scoping them to one app would let
