@@ -94,10 +94,28 @@ Synapse. Payload:
 | `companyCode` | string | The user's company. |
 | `hierarchyCode` | string | The user's hierarchy — this is what access grants are matched against. |
 | `hierarchyName` | string | Display form of the above. |
-| `roles` | string[] | Role codes. |
+| `roles` | string[] | **Always empty. Do not use.** See the warning below. |
+
+> **`roles` is always an empty array.** The claim exists in `SessionPayload` and is written
+> as `[]` at sign-in (`src/app/api/auth/login/route.ts`). Nothing in Synapse reads it, and
+> nothing populates it. An authorisation check against `roles` would therefore test an empty
+> array and silently pass or fail for the wrong reason. Use the menu grant (§4) instead — it
+> is the only mechanism that works, and the only one Synapse itself uses.
 
 **Verify the signature. Never decode unverified.** A JWT is readable by anyone holding it; only
 verification makes it trustworthy.
+
+### 3.2.1 What sharing `SESSION_SECRET` means
+
+The secret is not a read credential. **Any application holding it can mint a valid Synapse
+session for any user**, because the same key that verifies a token also signs one. Share it
+only with applications trusted at that level, rotate it across all of them together, and
+never place it anywhere it could be read by a browser.
+
+If the number of integrated apps grows beyond a handful, move to the signed-handoff model
+(§2.2) where each app holds its own secret, rather than widening the blast radius of one key.
+
+---
 
 ### 3.3 Re-check that the user is still active
 
@@ -160,7 +178,7 @@ roles in its verified token.
 
 | Item | Notes |
 |---|---|
-| `appCode` | Short, stable, uppercase. Never changes — menus and grants key on it. |
+| `appCode` | Short, stable, **uppercase**. Never changes — menus and grants key on it. Existing codes are inconsistent (`BROKING`, `SUPPORT`, but also `WorkPulse`); do not add to that. |
 | App name | As it should read in the Apps switcher. |
 | Icon or logo | An emoji works; a logo URL is better. |
 | Base URL per environment | dev / UAT / production, separately. |
@@ -187,14 +205,37 @@ in another.
 ## 6. What Synapse will not do
 
 - Pass user credentials to an application
-- Grant write access to the Synapse database. Read access, where genuinely needed, is a
-  **read-only database role** mirroring the existing `prismaReadOnly` pattern
+- Grant write access to the Synapse database
 - Grant access to a hierarchy that has not been approved
 - Accept an application that implements its own login
 
 ---
 
-## 7. Worked example
+## 7. Reading Synapse's own data
+
+Apps commonly need one fact from Synapse — usually "is this user still active?" (§3.3). How
+that is served matters, because the obvious answer is the wrong one.
+
+**A read-only login on the Synapse database is broader than it sounds.** `user_details`
+carries `password_hash`, and the database also holds the full audit log. A blanket
+`SELECT`-everywhere role hands an application every password hash on the platform to answer
+a boolean question.
+
+In preference order:
+
+1. **A narrow service endpoint** — e.g. `GET /api/identity/active?userUid=…` returning
+   `{ active: boolean }`, service-authenticated. Minimum disclosure, and the calls can be
+   logged and rate-limited. Preferred.
+2. **A read-only role with column-level grants** that exclude `password_hash`, if a direct
+   connection is genuinely required for volume or latency reasons.
+3. A blanket read-only role — **not acceptable** for an application outside Synapse.
+
+`prismaReadOnly` is sometimes cited as the precedent here. It is not: that is a second
+connection *inside* Synapse used to execute report SQL, not an external access contract.
+
+---
+
+## 8. Worked example
 
 **workPulse** is the reference implementation: a separately deployed Next.js + NestJS
 application, registered as `WorkPulse` in `AppMaster` with a single `EXTERNAL` menu entry, and
