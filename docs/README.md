@@ -6,6 +6,15 @@
 | Technical Architecture | `02-technical-architecture.html` | `02-technical-architecture.pdf` | Engineers, architects, DBAs, operations |
 | User Guidelines | `03-user-guidelines.html` | `03-user-guidelines.pdf` | All staff (Part A) and administrators (Part B) |
 
+Markdown-only documents, written for people who will read them in the repository rather
+than as a circulated PDF:
+
+| Document | Source | Audience |
+|---|---|---|
+| Issue Tracker BRS | `04-issue-tracker-brs.md` | Product owners, engineers |
+| UAT Deployment Guide | `05-uat-deployment.md` | Whoever deploys and operates an environment |
+| App Integration Guide | `06-app-integration.md` | Teams building an app that should plug into Synapse |
+
 The HTML files are the source of truth — edit those, not the PDFs. All three share
 `assets/print.css`, which carries the A4 page setup, the SIHL palette and the page-break
 rules, so a change there restyles the whole set.
