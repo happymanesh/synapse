@@ -1,20 +1,122 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { listMyTickets } from "@/lib/tickets";
+import {
+  listMyTickets,
+  listApplications,
+  listSegments,
+  myTicketsScope,
+  oldestOpenTicketDate,
+} from "@/lib/tickets";
 import { formatDateTime } from "@/lib/report-format";
 import { StatusPill } from "@/components/support/ticket-ui";
-import { describeTicketType } from "@/lib/ticket-core";
+import TicketFilterRow, { type TicketColumnSpec } from "@/components/support/TicketFilterRow";
+import TicketPager from "@/components/support/TicketPager";
+import TicketDateRange from "@/components/support/TicketDateRange";
+import { describeTicketType, TICKET_TYPES, TICKET_TYPE_LABELS } from "@/lib/ticket-core";
+import {
+  parseTicketListParams,
+  defaultCreatedRange,
+  hasActiveFilters,
+  toDateInputValue,
+  STATUS_FILTERS,
+} from "@/lib/ticket-list-core";
 
-export default async function MyTicketsPage() {
+const DEFAULT_STATUS = "ANY_OPEN";
+
+export default async function MyTicketsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const tickets = await listMyTickets(session.userUid, session.username);
+  const params = await searchParams;
+  const filters = parseTicketListParams(params, { status: DEFAULT_STATUS });
+
+  // The default range starts at the caller's oldest still-open ticket (capped at 90 days),
+  // so the list opens showing everything outstanding rather than a window that might hide
+  // it. Only looked up when the URL carries no dates of its own.
+  const now = new Date();
+  let { from, to } = filters;
+  if (!from || !to) {
+    const oldest = await oldestOpenTicketDate(myTicketsScope(session.userUid, session.username));
+    const fallback = defaultCreatedRange(oldest, now);
+    from = from ?? fallback.from;
+    to = to ?? fallback.to;
+  }
+
+  const [{ rows, window }, applications, segments] = await Promise.all([
+    listMyTickets(session.userUid, session.username, { ...filters, from, to }, now),
+    listApplications(),
+    listSegments(),
+  ]);
+
+  const columns: TicketColumnSpec[] = [
+    { header: "Ticket", filter: { kind: "text", param: "ticketNo", placeholder: "TKT-…" } },
+    { header: "Subject", filter: { kind: "text", param: "subject", placeholder: "Contains…" } },
+    {
+      header: "Type",
+      filter: {
+        kind: "select",
+        param: "ticketType",
+        options: [
+          { value: "", label: "All" },
+          ...TICKET_TYPES.map((t) => ({ value: t, label: TICKET_TYPE_LABELS[t] })),
+        ],
+      },
+    },
+    {
+      header: "Application",
+      filter: {
+        kind: "select",
+        param: "applicationId",
+        options: [{ value: "", label: "All" }, ...applications.map((a) => ({ value: String(a.id), label: a.name }))],
+      },
+    },
+    {
+      header: "Segment",
+      filter: {
+        kind: "select",
+        param: "segmentId",
+        options: [{ value: "", label: "All" }, ...segments.map((s) => ({ value: String(s.id), label: s.name }))],
+      },
+    },
+    {
+      header: "Channel",
+      align: "center",
+      filter: {
+        kind: "select",
+        param: "channel",
+        options: [
+          { value: "", label: "All" },
+          { value: "SYNAPSE", label: "Synapse" },
+          { value: "PHONE", label: "Phone" },
+          { value: "WHATSAPP", label: "WhatsApp" },
+          { value: "EMAIL", label: "Email" },
+          { value: "WEBSITE", label: "Website" },
+        ],
+      },
+    },
+    { header: "Raised", align: "center", filter: { kind: "none" } },
+    {
+      header: "Status",
+      align: "center",
+      filter: {
+        kind: "select",
+        param: "status",
+        // The page applies a default the URL does not carry, so the control is told what is
+        // actually in force rather than inferring it from an absent param.
+        value: filters.status,
+        options: STATUS_FILTERS.map((s) => ({ value: s.value, label: s.label })),
+      },
+    },
+  ];
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
+      <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-foreground">My Tickets</h1>
           <p className="text-sm text-foreground/60">Tickets you raised, and calls you logged for others.</p>
@@ -27,30 +129,38 @@ export default async function MyTicketsPage() {
         </Link>
       </div>
 
-      {tickets.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-10 text-center">
-          <p className="text-sm text-foreground/70">No tickets yet.</p>
-          <Link href="/support/tickets/new" className="mt-2 inline-block text-sm font-medium text-link hover:underline">
-            Raise your first one
-          </Link>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-surface text-left text-xs uppercase tracking-wide text-foreground/60">
+      <div className="mb-3">
+        <TicketDateRange
+          from={toDateInputValue(from)}
+          to={toDateInputValue(to)}
+          showClear={hasActiveFilters(filters, DEFAULT_STATUS) || filters.from !== null || filters.to !== null}
+        />
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
+        <table className="w-full text-sm">
+          <thead className="border-b border-border bg-surface text-left text-xs uppercase tracking-wide text-foreground/60">
+            <tr>
+              {columns.map((c) => (
+                <th
+                  key={c.header}
+                  className={`px-4 py-3 font-semibold ${c.align === "center" ? "text-center" : ""}`}
+                >
+                  {c.header}
+                </th>
+              ))}
+            </tr>
+            <TicketFilterRow columns={columns} />
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
               <tr>
-                <th className="px-4 py-3 font-semibold">Ticket</th>
-                <th className="px-4 py-3 font-semibold">Subject</th>
-                <th className="px-4 py-3 font-semibold">Type</th>
-                <th className="px-4 py-3 font-semibold">Application</th>
-                <th className="px-4 py-3 font-semibold">Segment</th>
-                <th className="px-4 py-3 text-center font-semibold">Channel</th>
-                <th className="px-4 py-3 text-center font-semibold">Raised</th>
-                <th className="px-4 py-3 text-center font-semibold">Status</th>
+                <td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-foreground/70">
+                  No tickets match these filters.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {tickets.map((t) => (
+            ) : (
+              rows.map((t) => (
                 <tr key={t.id} className="border-b border-border last:border-0 hover:bg-surface/60">
                   <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold">
                     <Link href={`/support/tickets/${t.id}`} className="text-link hover:underline">
@@ -73,11 +183,13 @@ export default async function MyTicketsPage() {
                     <StatusPill status={t.mergedIntoTicketId !== null ? "MERGED" : t.status} />
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <TicketPager window={window} searchParams={params} basePath="/support/tickets" />
     </div>
   );
 }

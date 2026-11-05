@@ -1,6 +1,17 @@
 import "server-only";
+import type { Prisma } from "../../generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { hasMenuAccess } from "@/lib/auth";
+import {
+  addDays,
+  endOfDayExclusive,
+  paginate,
+  resolveStatusFilter,
+  startOfDay,
+  CLOSED_WINDOW_DAYS,
+  type PageWindow,
+  type TicketListFilters,
+} from "@/lib/ticket-list-core";
 import { NEW_OPTION_SENTINEL } from "@/lib/ticket-schemas";
 import { checkAttachment } from "@/lib/attachment-core";
 import { getMailer, mailConfig } from "@/lib/mail/mailer";
@@ -298,27 +309,125 @@ function describeIdentityResolution(raiser: TicketRaiser, resolved: ResolvedRais
  * just took). Seeing everyone's tickets is the triage queue, which is a separate menu gated
  * by role — not this list.
  */
-export async function listMyTickets(userUid: number, username: string) {
-  return prisma.ticket.findMany({
-    where: { OR: [{ raiserUid: userUid }, { createdBy: username }] },
-    orderBy: { raisedAt: "desc" },
-    take: 100,
-    select: {
-      id: true,
-      ticketNo: true,
-      subject: true,
-      status: true,
-      channel: true,
-      raisedAt: true,
-      raiserType: true,
-      guestName: true,
-      mergedIntoTicketId: true,
-      ticketType: true,
-      typeOther: true,
-      application: { select: { name: true } },
-      segment: { select: { name: true } },
-    },
+/**
+ * The where-clause both ticket lists share.
+ *
+ * Every filter is applied in the database rather than over a fetched page. Filtering a page
+ * client-side would be a lie as soon as there are more rows than fit on one: page 2 would
+ * contradict page 1, and a count would mean nothing.
+ *
+ * Text filters are `contains`, case-insensitive — someone typing "position" into Subject
+ * means "has that word in it", not "is exactly that".
+ */
+function buildTicketWhere(filters: TicketListFilters, now: Date): Prisma.TicketWhereInput {
+  const { statuses, closedWithinDays } = resolveStatusFilter(filters.status);
+  const text = (value: string | null) =>
+    value === null ? undefined : { contains: value, mode: "insensitive" as const };
+
+  return {
+    ...(statuses ? { status: { in: statuses } } : {}),
+    ...(closedWithinDays !== null
+      ? { closedAt: { gte: addDays(startOfDay(now), -closedWithinDays) } }
+      : {}),
+    ...(filters.ticketNo ? { ticketNo: text(filters.ticketNo) } : {}),
+    ...(filters.subject ? { subject: text(filters.subject) } : {}),
+    ...(filters.ticketType ? { ticketType: filters.ticketType } : {}),
+    ...(filters.applicationId ? { applicationId: filters.applicationId } : {}),
+    ...(filters.segmentId ? { segmentId: filters.segmentId } : {}),
+    ...(filters.channel ? { channel: filters.channel } : {}),
+    ...(filters.assignedTo ? { assignedTo: { fullName: text(filters.assignedTo) } } : {}),
+    // A raiser is either a known user or a captured guest name, so both have to be searched
+    // or logged-for-others tickets become unfindable by the name the desk wrote down.
+    ...(filters.raisedBy
+      ? {
+          OR: [
+            { raiser: { fullName: text(filters.raisedBy) } },
+            { guestName: text(filters.raisedBy) },
+          ],
+        }
+      : {}),
+    ...(filters.from || filters.to
+      ? {
+          raisedAt: {
+            ...(filters.from ? { gte: startOfDay(filters.from) } : {}),
+            ...(filters.to ? { lt: endOfDayExclusive(filters.to) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** Everything My Tickets and the Triage Queue show, in one shape so they cannot drift. */
+const TICKET_ROW_SELECT = {
+  id: true,
+  ticketNo: true,
+  subject: true,
+  status: true,
+  channel: true,
+  raisedAt: true,
+  slaClockStartAt: true,
+  firstResponseAt: true,
+  raiserType: true,
+  guestName: true,
+  mergedIntoTicketId: true,
+  ticketType: true,
+  typeOther: true,
+  application: { select: { name: true } },
+  segment: { select: { name: true } },
+  raiser: { select: { fullName: true } },
+  assignedTo: { select: { fullName: true } },
+} as const;
+
+export interface TicketListPage<T> {
+  rows: T[];
+  window: PageWindow;
+}
+
+/**
+ * The raised date of the caller's oldest still-open ticket, or null.
+ *
+ * Drives the default Created range (see `defaultCreatedRange`) so the list opens showing
+ * everything outstanding rather than an arbitrary window that might hide it.
+ */
+export async function oldestOpenTicketDate(scope: Prisma.TicketWhereInput): Promise<Date | null> {
+  const row = await prisma.ticket.findFirst({
+    where: { ...scope, status: { in: [...OPEN_STATUSES] }, mergedIntoTicketId: null },
+    orderBy: { raisedAt: "asc" },
+    select: { raisedAt: true },
   });
+  return row?.raisedAt ?? null;
+}
+
+/** Tickets the caller raised, or logged on someone else's behalf. */
+export function myTicketsScope(userUid: number, username: string): Prisma.TicketWhereInput {
+  return { OR: [{ raiserUid: userUid }, { createdBy: username }] };
+}
+
+export async function listMyTickets(
+  userUid: number,
+  username: string,
+  filters: TicketListFilters,
+  now: Date = new Date()
+) {
+  const where: Prisma.TicketWhereInput = {
+    AND: [myTicketsScope(userUid, username), buildTicketWhere(filters, now)],
+  };
+
+  // Count first, then clamp, then fetch. Fetching before clamping would mean a second
+  // query whenever the requested page is past the end — which happens routinely, because
+  // narrowing a filter while on page 4 leaves the page number behind.
+  // The count must use the same where clause, or the pager describes a different list
+  // from the one on screen.
+  const total = await prisma.ticket.count({ where });
+  const window = paginate(total, filters.page);
+  const rows = await prisma.ticket.findMany({
+    where,
+    orderBy: { raisedAt: "desc" },
+    skip: window.skip,
+    take: window.take,
+    select: TICKET_ROW_SELECT,
+  });
+  return { rows, window };
 }
 
 /** Columns every ticket-detail consumer needs. Kept in one place so the queue, the detail
@@ -886,34 +995,68 @@ async function notifyForward(
  * The triage queue (§4.5): every ticket, oldest first so the longest-waiting surfaces top.
  * Absorbed tickets are excluded — their thread is the survivor now.
  */
-export async function listTriageQueue(options: { status?: string; onlyMine?: number } = {}) {
-  return prisma.ticket.findMany({
-    where: {
-      mergedIntoTicketId: null,
-      ...(options.status ? { status: options.status } : { status: { in: [...OPEN_STATUSES] } }),
-      ...(options.onlyMine ? { assignedToUid: options.onlyMine } : {}),
-    },
+export async function listTriageQueue(filters: TicketListFilters, now: Date = new Date()) {
+  // Absorbed tickets never appear: their thread lives on the survivor now, and showing both
+  // would double-count the queue.
+  const where: Prisma.TicketWhereInput = {
+    AND: [{ mergedIntoTicketId: null }, buildTicketWhere(filters, now)],
+  };
+
+  const total = await prisma.ticket.count({ where });
+  const window = paginate(total, filters.page);
+  const rows = await prisma.ticket.findMany({
+    where,
+    // Longest-waiting first: the queue exists to surface what has been ignored.
     orderBy: { slaClockStartAt: "asc" },
-    take: 200,
-    select: {
-      id: true,
-      ticketNo: true,
-      subject: true,
-      status: true,
-      channel: true,
-      raisedAt: true,
-      slaClockStartAt: true,
-      firstResponseAt: true,
-      mergedIntoTicketId: true,
-      guestName: true,
-      ticketType: true,
-      typeOther: true,
-      application: { select: { name: true } },
-      segment: { select: { name: true } },
-      raiser: { select: { fullName: true } },
-      assignedTo: { select: { fullName: true } },
-    },
+    skip: window.skip,
+    take: window.take,
+    select: TICKET_ROW_SELECT,
   });
+  return { rows, window };
+}
+
+export interface TriageCounts {
+  /** Everything still being worked on, across all four active statuses. */
+  anyOpen: number;
+  byStatus: { status: string; count: number }[];
+  closedRecent: number;
+}
+
+/**
+ * The counts behind the Triage Queue's boxes.
+ *
+ * Counted independently of the current filter: these are the headline numbers the desk
+ * navigates by, and a box whose number changed every time you filtered the table under it
+ * would be useless as a starting point.
+ *
+ * Closed is bounded to a window rather than counted outright — a lifetime closed count only
+ * ever grows and tells nobody anything about today.
+ */
+export async function triageCounts(now: Date = new Date()): Promise<TriageCounts> {
+  const base: Prisma.TicketWhereInput = { mergedIntoTicketId: null };
+
+  const [grouped, closedRecent] = await Promise.all([
+    prisma.ticket.groupBy({ by: ["status"], where: base, _count: { _all: true } }),
+    prisma.ticket.count({
+      where: {
+        ...base,
+        status: "CLOSED",
+        closedAt: { gte: addDays(startOfDay(now), -CLOSED_WINDOW_DAYS) },
+      },
+    }),
+  ]);
+
+  const counts = new Map(grouped.map((g) => [g.status, g._count._all]));
+  const byStatus = (OPEN_STATUSES as readonly string[]).map((status) => ({
+    status,
+    count: counts.get(status) ?? 0,
+  }));
+
+  return {
+    anyOpen: byStatus.reduce((sum, s) => sum + s.count, 0),
+    byStatus,
+    closedRecent,
+  };
 }
 
 /**
