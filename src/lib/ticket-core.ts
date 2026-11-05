@@ -173,6 +173,21 @@ export function describeTicketType(ticketType: string, typeOther: string | null)
   return TICKET_TYPE_LABELS[ticketType as TicketType] ?? ticketType;
 }
 
+/**
+ * How to name a person in the UI: `Manesh Anand Mukherjee (Admin001)`.
+ *
+ * Audit columns store the username alone and deliberately carry no foreign key, so a row
+ * stays meaningful after the account it names is deleted. That makes the full name a
+ * display-time lookup which can legitimately come back empty — for a departed colleague, or
+ * for a username that was never an account. The username is therefore always shown, and the
+ * name is added when there is one, rather than one being substituted for the other.
+ */
+export function describeActor(username: string, fullName: string | null | undefined): string {
+  const name = fullName?.trim();
+  if (!name || name === username) return username;
+  return `${name} (${username})`;
+}
+
 // ---------------------------------------------------------------------------
 // Duplicate detection (BRS §4.4)
 // ---------------------------------------------------------------------------

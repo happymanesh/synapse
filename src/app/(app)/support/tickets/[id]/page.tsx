@@ -11,7 +11,13 @@ import {
   suggestIdentityMatches,
 } from "@/lib/tickets";
 import { formatBytes } from "@/lib/attachment-core";
-import { allowedTransitions, canProposeChangeRequest, canReconcile, describeTicketType } from "@/lib/ticket-core";
+import {
+  allowedTransitions,
+  canProposeChangeRequest,
+  canReconcile,
+  describeActor,
+  describeTicketType,
+} from "@/lib/ticket-core";
 import { StatusPill } from "@/components/support/ticket-ui";
 import TicketActions from "./TicketActions";
 import DuplicateSuggestions from "./DuplicateSuggestions";
@@ -238,7 +244,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
               <Row label="Application" value={ticket.application.name} />
               <Row label="Segment" value={ticket.segment.name} />
               <Row label="Assigned to" value={ticket.assignedTo?.fullName ?? "Unassigned"} />
-              <Row label="Logged by" value={ticket.createdBy} />
+              <Row label="Logged by" value={describeActor(ticket.createdBy, ticket.createdByFullName)} />
             </dl>
           </Card>
 

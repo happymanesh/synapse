@@ -16,6 +16,7 @@ import {
   canReconcile,
   requiresTypeOther,
   describeTicketType,
+  describeActor,
   TICKET_TYPES,
   canProposeChangeRequest,
   canDecideChangeRequest,
@@ -630,5 +631,27 @@ describe("hasBreachedResponseTarget", () => {
     const twentyFive = { ...open, slaClockStartAt: at(-25) };
     assert.equal(hasBreachedResponseTarget(twentyFive, BASE), true);
     assert.equal(hasBreachedResponseTarget(twentyFive, BASE, 48), false);
+  });
+});
+
+describe("describeActor", () => {
+  test("shows the name with the username beside it", () => {
+    assert.equal(describeActor("Admin001", "Manesh Anand Mukherjee"), "Manesh Anand Mukherjee (Admin001)");
+  });
+
+  test("falls back to the username alone when no name is known", () => {
+    // Audit columns carry no foreign key, so the lookup legitimately misses for a departed
+    // colleague — the username must still be shown rather than an empty cell.
+    for (const name of [null, undefined, "", "   "]) {
+      assert.equal(describeActor("Admin001", name), "Admin001", String(name));
+    }
+  });
+
+  test("does not repeat itself when the name and username are identical", () => {
+    assert.equal(describeActor("SIHL0720", "SIHL0720"), "SIHL0720");
+  });
+
+  test("trims a padded name", () => {
+    assert.equal(describeActor("Admin001", "  Priya Nair  "), "Priya Nair (Admin001)");
   });
 });

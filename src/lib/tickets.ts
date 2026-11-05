@@ -493,7 +493,16 @@ export async function getTicketForViewer(id: number, userUid: number, username: 
   const staff = await canLogForOthers(userUid);
   const owned = ticket.raiserUid === userUid || ticket.createdBy === username;
   if (!staff && !owned) return null;
-  return ticket;
+
+  // createdBy is a denormalised username with no foreign key — on purpose, so the record
+  // survives the account being deleted. The full name is therefore looked up for display
+  // only, and may legitimately find nothing; describeActor falls back to the username.
+  const loggedBy = await prisma.userDetails.findFirst({
+    where: { username: ticket.createdBy },
+    select: { fullName: true },
+  });
+
+  return { ...ticket, createdByFullName: loggedBy?.fullName ?? null };
 }
 
 /**
