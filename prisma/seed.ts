@@ -1252,6 +1252,14 @@ async function main() {
         dataSourceType: "NONE",
       },
       {
+        // The Daily Ticket Stats drill-down lands on one day, not a range. A DATE_RANGE
+        // cannot carry that: its wire format is "from,to", and a drill supplies one value.
+        componentCode: "SUPPORT_RAISED_ON",
+        componentName: "Raised On",
+        componentType: "DATE",
+        dataSourceType: "NONE",
+      },
+      {
         componentCode: "SUPPORT_APPLICATION",
         componentName: "Application",
         componentType: "DROPDOWN",
@@ -1293,6 +1301,37 @@ async function main() {
           data: { filterId, componentCode: "SUPPORT_APPLICATION", rowNo: 1, positionNo: 2 },
         });
       }
+    }
+
+    // Added outside the "no items yet" branch for the same reason as the date default
+    // below: every seeded environment has already run that branch once.
+    if (filterId === "SUPPORT_TICKETS_FILTER") {
+      // SUPPORT_APPLICATION is repaired here as well as created above, because environments
+      // seeded before the module->application rename still carry SUPPORT_PRODUCT_MODULE.
+      // That silently breaks the Tickets by Application drill-down: carry-over works by
+      // matching component codes, so a drill passing SUPPORT_APPLICATION into a filter that
+      // has no such item applies NO filter and quietly returns every ticket.
+      for (const [componentCode, positionNo] of [
+        ["SUPPORT_APPLICATION", 2],
+        ["SUPPORT_RAISED_ON", 3],
+      ] as const) {
+        const already = await prisma.filterDefinitionItem.findFirst({
+          where: { filterId, componentCode },
+        });
+        if (!already) {
+          await prisma.filterDefinitionItem.create({
+            data: { filterId, componentCode, rowNo: 1, positionNo },
+          });
+        }
+      }
+
+      // Its replacement is now in place and no report's SQL binds it any more, so it would
+      // render as a dropdown that filters nothing. Deactivated rather than deleted: the
+      // engine already ignores inactive items, and an admin can see what happened.
+      await prisma.filterDefinitionItem.updateMany({
+        where: { filterId, componentCode: "SUPPORT_PRODUCT_MODULE" },
+        data: { isActive: false },
+      });
     }
 
     // Applied outside the "no items yet" branch so an already-seeded environment picks it
@@ -1348,7 +1387,16 @@ async function main() {
   await prisma.reportColumn.deleteMany({ where: { reportId: "SUPPORT_DAILY_STATS" } });
   await prisma.reportColumn.createMany({
     data: [
-      { reportId: "SUPPORT_DAILY_STATS", columnKey: "stat_date", displayLabel: "Date", displayOrder: 1, dataType: "DATE" },
+      {
+        reportId: "SUPPORT_DAILY_STATS",
+        columnKey: "stat_date",
+        displayLabel: "Date",
+        displayOrder: 1,
+        dataType: "DATE",
+        drillDownReportId: "SUPPORT_TICKET_LIST",
+        drillDownTargetParam: "SUPPORT_RAISED_ON",
+        drillDownMode: "PAGE",
+      },
       { reportId: "SUPPORT_DAILY_STATS", columnKey: "tickets_raised", displayLabel: "Raised", displayOrder: 2, dataType: "NUMBER", showTotal: true },
       { reportId: "SUPPORT_DAILY_STATS", columnKey: "tickets_closed", displayLabel: "Closed", displayOrder: 3, dataType: "NUMBER", showTotal: true },
       { reportId: "SUPPORT_DAILY_STATS", columnKey: "tickets_forwarded", displayLabel: "Forwarded", displayOrder: 4, dataType: "NUMBER", showTotal: true },
@@ -1373,7 +1421,7 @@ async function main() {
     filterId: "SUPPORT_TICKETS_FILTER",
     mode: "REPORT",
     queryText:
-      "SELECT t.ticket_no, t.subject, a.name AS application, sg.name AS segment, t.ticket_type, t.status, t.channel, " +
+      "SELECT t.id AS ticket_id, t.ticket_no, t.subject, a.name AS application, sg.name AS segment, t.ticket_type, t.status, t.channel, " +
       "t.raised_at, t.resolved_at, " +
       "ROUND((EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, NOW()) - t.sla_clock_start_at)) / 3600.0)::numeric, 2) AS turnaround_hours, " +
       "COALESCE(u.full_name, t.guest_name, 'Guest') AS raised_by " +
@@ -1384,11 +1432,16 @@ async function main() {
       "AND (:SUPPORT_DATE_RANGE_FROM::date IS NULL OR t.raised_at::date >= :SUPPORT_DATE_RANGE_FROM) " +
       "AND (:SUPPORT_DATE_RANGE_TO::date IS NULL OR t.raised_at::date <= :SUPPORT_DATE_RANGE_TO) " +
       "AND (:SUPPORT_APPLICATION::text IS NULL OR a.name = :SUPPORT_APPLICATION) " +
+      // Set by the Daily Ticket Stats drill-down, which starts from one day rather than a
+      // range. Kept as its own parameter instead of collapsing the range to a single day,
+      // so both routes into this report stay independently readable.
+      "AND (:SUPPORT_RAISED_ON::date IS NULL OR t.raised_at::date = :SUPPORT_RAISED_ON) " +
       "ORDER BY t.raised_at DESC",
     maxRows: 2000,
     freezeColumns: 0,
     displayStyle: "PAGED",
     footerNote: "Excludes tickets merged into another thread.",
+    showSerialNo: true,
     allowedFormats: ["CSV"],
     allowedDeliveries: ["DOWNLOAD"],
     isActive: true,
@@ -1401,7 +1454,16 @@ async function main() {
   await prisma.reportColumn.deleteMany({ where: { reportId: "SUPPORT_TICKET_LIST" } });
   await prisma.reportColumn.createMany({
     data: [
-      { reportId: "SUPPORT_TICKET_LIST", columnKey: "ticket_no", displayLabel: "Ticket", displayOrder: 1, dataType: "TEXT" },
+      {
+        reportId: "SUPPORT_TICKET_LIST",
+        columnKey: "ticket_no",
+        displayLabel: "Ticket",
+        displayOrder: 1,
+        dataType: "TEXT",
+        // ticket_id is selected by the query but never given a column, so it carries the
+        // link without taking up a column of its own.
+        linkUrlTemplate: "/support/tickets/{ticket_id}",
+      },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "subject", displayLabel: "Subject", displayOrder: 2, dataType: "TEXT" },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "application", displayLabel: "Application", displayOrder: 3, dataType: "TEXT" },
       { reportId: "SUPPORT_TICKET_LIST", columnKey: "segment", displayLabel: "Segment", displayOrder: 4, dataType: "TEXT" },

@@ -69,6 +69,7 @@ export default async function ReportsAdminPage() {
         { value: "FULL_FROZEN", label: "Full width, frozen header/footer" },
       ],
     },
+    { name: "showSerialNo", label: "Show row numbers (#) down the left", type: "checkbox", defaultValue: false },
     { name: "footerNote", label: "Static footer note", type: "textarea" },
     { name: "allowedFormats", label: "Allowed export formats (comma-separated, e.g. CSV)", type: "text", defaultValue: "CSV" },
     { name: "allowedDeliveries", label: "Allowed deliveries (comma-separated, e.g. DOWNLOAD)", type: "text", defaultValue: "DOWNLOAD" },

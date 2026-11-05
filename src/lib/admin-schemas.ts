@@ -170,6 +170,7 @@ export const reportDefinitionSchema = z.object({
   maxRows: z.coerce.number().int().min(1).default(2000),
   freezeColumns: z.coerce.number().int().min(0).default(0),
   displayStyle: z.enum(["PAGED", "FULL_FROZEN"]).default("PAGED"),
+  showSerialNo: z.coerce.boolean().default(false),
   footerNote: z.string().optional().nullable(),
   allowedFormats: z
     .string()
@@ -193,6 +194,7 @@ export const reportColumnSchema = z.object({
   decimalPlaces: optionalIdSchema,
   showTotal: z.boolean().default(false),
   drillDownReportId: optionalStringSchema,
+  linkUrlTemplate: optionalStringSchema,
   drillDownTargetParam: optionalStringSchema,
   drillDownMode: z.enum(["PAGE", "MODAL"]).default("PAGE"),
   drillDownModalSize: z.enum(["AUTO", "SMALL", "MEDIUM", "LARGE"]).default("AUTO"),

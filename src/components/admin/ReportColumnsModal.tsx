@@ -52,6 +52,11 @@ export default function ReportColumnsModal({
     { name: "isIdentifier", label: "Identifier column (row primary key)", type: "checkbox", defaultValue: false },
     { name: "showTotal", label: "Show column total in footer (NUMBER only)", type: "checkbox", defaultValue: false },
     {
+      name: "linkUrlTemplate",
+      label: "Link cell to an app page, e.g. /support/tickets/{ticket_id} (leave blank for none)",
+      type: "text",
+    },
+    {
       name: "drillDownReportId",
       label: "Drill-down: report to open when a cell is clicked (leave blank for none)",
       type: "select",

@@ -81,6 +81,7 @@ interface RunResult {
   freezeColumns: number;
   displayStyle: string;
   footerNote: string | null;
+  showSerialNo?: boolean;
   total?: number;
 }
 
@@ -472,6 +473,7 @@ export default function ReportRunner({
           freezeColumns={result.freezeColumns}
           displayStyle={result.displayStyle}
           footerNote={result.footerNote}
+          showSerialNo={result.showSerialNo ?? false}
           highlightRules={result.highlightRules}
           allowedFormats={mode === "REPORT" ? allowedFormats : []}
           onExport={(format) => {

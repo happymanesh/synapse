@@ -91,6 +91,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
       freezeColumns: report.freezeColumns,
       displayStyle: report.displayStyle,
       footerNote: report.footerNote,
+      showSerialNo: report.showSerialNo,
       columns: report.columns,
       highlightRules: report.highlightRules,
       allowedFormats: report.allowedFormats,

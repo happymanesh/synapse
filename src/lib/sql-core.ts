@@ -12,6 +12,8 @@
  * a trusted author (or a compromised admin account) cannot make the engine write data.
  */
 
+import { resolveFilterDefault } from "./report-defaults-core";
+
 export interface BoundQuery {
   sql: string;
   params: unknown[];
@@ -220,18 +222,25 @@ export interface FilterItemForBinding {
  */
 export function buildParamValues(
   items: FilterItemForBinding[],
-  submittedValues: Record<string, unknown>
+  submittedValues: Record<string, unknown>,
+  now: Date = new Date()
 ): Record<string, unknown> {
   const paramValues: Record<string, unknown> = {};
   for (const item of items) {
     const raw = submittedValues[item.componentCode];
+    // Dynamic defaults are resolved HERE, not only in the filter form. A default is
+    // consumed in two places — the form that renders it, and this binder when a filter is
+    // submitted empty — and resolving it in only one sends the literal token to Postgres,
+    // which rejects "LAST_7_DAYS" as a date. Same reasoning as resolveFilterValue below:
+    // one chokepoint, so no future caller has to remember.
+    const fallback = resolveFilterDefault(item.defaultValue, now);
     if (item.componentType === "DATE_RANGE") {
-      const combined = typeof raw === "string" && raw !== "" ? raw : (item.defaultValue ?? "");
+      const combined = typeof raw === "string" && raw !== "" ? raw : fallback;
       const [from, to] = combined.split(",");
       paramValues[`${item.componentCode}_FROM`] = from || null;
       paramValues[`${item.componentCode}_TO`] = to || null;
     } else {
-      paramValues[item.componentCode] = resolveFilterValue(raw, item.defaultValue);
+      paramValues[item.componentCode] = resolveFilterValue(raw, fallback || null);
     }
   }
   return paramValues;

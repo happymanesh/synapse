@@ -360,6 +360,10 @@ model ReportDefinition {
   freezeColumns      Int      @default(0) @map("freeze_columns")
   displayStyle       String   @default("PAGED") @map("display_style") // PAGED | FULL_FROZEN
   footerNote         String?  @map("footer_note")
+  /// Numbers the rows as displayed — after sorting and column filtering — rather than
+  /// carrying a value from the query. A report needing a stable identifier should select
+  /// one as an ordinary column.
+  showSerialNo       Boolean  @default(false) @map("show_serial_no")
   allowedFormats     String[] @default(["CSV"]) @map("allowed_formats")
   allowedDeliveries  String[] @default(["DOWNLOAD"]) @map("allowed_deliveries")
   isActive           Boolean  @default(true) @map("is_active")
@@ -395,6 +399,12 @@ model ReportColumn {
   // value into drillDownTargetParam. See CLAUDE.md "Report drill-down" rule for the
   // plain-string vs JSON-discriminator convention on drillDownTargetParam, and for how
   // the rest of the current filter values carry over automatically.
+  /// Renders the cell as a link into the application, e.g. `/support/tickets/{ticket_id}`.
+  /// `{column}` placeholders take that row's value, so the template can key off a column the
+  /// report selects but never displays. Separate from the drill-down fields below: those
+  /// open another report, this opens an app page, and a column can do either alone.
+  linkUrlTemplate      String? @map("link_url_template")
+
   drillDownReportId    String? @map("drill_down_report_id")
   drillDownTargetParam String? @map("drill_down_target_param")
   drillDownMode        String  @default("PAGE") @map("drill_down_mode") // PAGE ("Normal" in the admin UI) | MODAL ("Popup")

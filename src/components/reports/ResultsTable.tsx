@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { alignmentForType, compareByType, formatCellByType, type ColumnDataType } from "@/lib/report-format";
+import { buildCellLink } from "@/lib/report-link-core";
 import { useLanguage } from "@/lib/i18n";
 
 export interface ReportColumnView {
@@ -13,6 +15,7 @@ export interface ReportColumnView {
   dataType?: string;
   decimalPlaces?: number | null;
   showTotal?: boolean;
+  linkUrlTemplate?: string | null;
   drillDownReportId?: string | null;
   drillDownTargetParam?: string | null;
   drillDownMode?: string | null;
@@ -71,6 +74,7 @@ export default function ResultsTable({
   onExport,
   rowActions,
   onDrillDown,
+  showSerialNo = false,
 }: {
   title?: string;
   filterSummary?: string;
@@ -84,6 +88,8 @@ export default function ResultsTable({
   onExport?: (format: "CSV" | "PDF" | "EXCEL") => void;
   rowActions?: (row: Record<string, unknown>) => React.ReactNode;
   onDrillDown?: (column: ReportColumnView, row: Record<string, unknown>) => void;
+  /** Adds a 1-based row-number column down the left. */
+  showSerialNo?: boolean;
 }) {
   const { t } = useLanguage();
   const [page, setPage] = useState(1);
@@ -145,7 +151,7 @@ export default function ResultsTable({
   }
 
   const hasDownload = allowedFormats.length > 0 && !!onExport;
-  const colSpan = sortedColumns.length + (rowActions ? 1 : 0);
+  const colSpan = sortedColumns.length + (rowActions ? 1 : 0) + (showSerialNo ? 1 : 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -211,6 +217,9 @@ export default function ResultsTable({
         <table className="w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 bg-surface text-xs text-foreground/60 uppercase">
             <tr>
+              {showSerialNo && (
+                <th className="w-12 border-b border-r border-border/60 px-3 py-2 text-right font-medium">#</th>
+              )}
               {sortedColumns.map((c, i) => {
                 const align = alignmentForType((c.dataType as ColumnDataType) ?? "TEXT");
                 return (
@@ -235,6 +244,7 @@ export default function ResultsTable({
             </tr>
             {showColumnFilter && (
               <tr>
+                {showSerialNo && <th className="border-b border-r border-border/60 bg-card p-1" />}
                 {sortedColumns.map((c) => (
                   <th key={`filter-${c.columnKey}`} className="border-b border-r border-border/60 bg-card p-1 font-normal normal-case">
                     <input
@@ -265,11 +275,19 @@ export default function ResultsTable({
               const stripeClass = highlight ? "" : ri % 2 === 0 ? "bg-card" : "bg-surface/50";
               return (
                 <tr key={ri} className={`border-b border-border/60 ${stripeClass}`} style={highlight ? { backgroundColor: highlight } : undefined}>
+                  {showSerialNo && (
+                    // Numbered by position on the page, continuing across pages, so row 26
+                    // on page 2 reads "26" rather than restarting at 1.
+                    <td className="border-r border-border/60 px-3 py-2 text-right text-foreground/50 tabular-nums">
+                      {(isFullFrozen ? 0 : (page - 1) * pageSize) + ri + 1}
+                    </td>
+                  )}
                   {sortedColumns.map((c, i) => {
                     const dataType = (c.dataType as ColumnDataType) ?? "TEXT";
                     const align = alignmentForType(dataType);
                     const cellText = formatCellByType(row[c.columnKey], dataType, c.decimalPlaces);
                     const drillable = !!c.drillDownReportId && onDrillDown;
+                    const linkHref = buildCellLink(c.linkUrlTemplate, row);
                     return (
                       <td
                         key={c.columnKey}
@@ -285,7 +303,13 @@ export default function ResultsTable({
                             : undefined
                         }
                       >
-                        {drillable ? (
+                        {linkHref ? (
+                          // An app link, not a drill-down: a real anchor, so it can be
+                          // middle-clicked, opened in a new tab and copied like any link.
+                          <Link href={linkHref} className="text-link underline-offset-2 hover:underline">
+                            {cellText}
+                          </Link>
+                        ) : drillable ? (
                           <button
                             type="button"
                             onClick={() => onDrillDown!(c, row)}

@@ -169,3 +169,57 @@ describe("value resolution", () => {
     assert.deepEqual(out, { D_FROM: null, D_TO: null });
   });
 });
+
+describe("buildParamValues — dynamic defaults", () => {
+  const NOW = new Date(2026, 10, 5);
+
+  test("resolves a token default rather than binding it as a literal", () => {
+    // The bug this covers: the token reached Postgres and the query died with
+    // `invalid input syntax for type date: "LAST_7_DAYS"`. Defaults are consumed both by
+    // the filter form and by this binder, and resolving in only one is not enough.
+    const params = buildParamValues(
+      [{ componentCode: "D", defaultValue: "LAST_7_DAYS", componentType: "DATE_RANGE" }],
+      {},
+      NOW
+    );
+    assert.equal(params.D_FROM, "2026-10-29");
+    assert.equal(params.D_TO, "2026-11-05");
+  });
+
+  test("a submitted range still wins over the default", () => {
+    const params = buildParamValues(
+      [{ componentCode: "D", defaultValue: "LAST_7_DAYS", componentType: "DATE_RANGE" }],
+      { D: "2026-01-01,2026-01-31" },
+      NOW
+    );
+    assert.equal(params.D_FROM, "2026-01-01");
+    assert.equal(params.D_TO, "2026-01-31");
+  });
+
+  test("resolves a token on a non-range component too", () => {
+    const params = buildParamValues(
+      [{ componentCode: "ON", defaultValue: "TODAY", componentType: "DATE" }],
+      {},
+      NOW
+    );
+    assert.equal(params.ON, "2026-11-05");
+  });
+
+  test("no default still binds null, not an empty string", () => {
+    const params = buildParamValues(
+      [{ componentCode: "X", defaultValue: null, componentType: "TEXT" }],
+      {},
+      NOW
+    );
+    assert.equal(params.X, null);
+  });
+
+  test("a literal default is unchanged", () => {
+    const params = buildParamValues(
+      [{ componentCode: "C", defaultValue: "SIHL", componentType: "TEXT" }],
+      {},
+      NOW
+    );
+    assert.equal(params.C, "SIHL");
+  });
+});
