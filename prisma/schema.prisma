@@ -566,7 +566,7 @@ model Ticket {
   onBehalfOfUid Int?    @map("on_behalf_of_uid")
   clientCode    String? @map("client_code")
 
-  channel String // WEBSITE | WHATSAPP | PHONE | SYNAPSE
+  channel String // WEBSITE | WHATSAPP | EMAIL | PHONE | SYNAPSE
 
   /// Classification on three independent axes, replacing the single combined category.
   /// Type is a fixed list (a reporting dimension shouldn't drift into near-duplicates);

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CHANNELS, NEW_OPTION_SENTINEL } from "@/lib/ticket-schemas";
+import { CHANNELS, NEW_OPTION_SENTINEL, channelLabel } from "@/lib/ticket-schemas";
 import { TICKET_TYPES, TICKET_TYPE_LABELS } from "@/lib/ticket-core";
 import { ALLOWED_EXTENSIONS, MAX_FILES_PER_TICKET, MAX_FILE_BYTES, formatBytes } from "@/lib/attachment-core";
 
@@ -209,7 +209,7 @@ export default function RaiseTicketForm({
             <select name="channel" defaultValue="PHONE" className={`${INPUT} border-border`}>
               {CHANNELS.map((c) => (
                 <option key={c} value={c}>
-                  {c.charAt(0) + c.slice(1).toLowerCase()}
+                  {channelLabel(c)}
                 </option>
               ))}
             </select>

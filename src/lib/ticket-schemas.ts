@@ -9,8 +9,18 @@ import { TICKET_TYPES } from "@/lib/ticket-core";
  */
 const optionalString = z.preprocess((v) => (v === "" || v === undefined ? null : v), z.string().nullable());
 
-export const CHANNELS = ["WEBSITE", "WHATSAPP", "PHONE", "SYNAPSE"] as const;
+// EMAIL is a channel the desk LOGS, not one that creates tickets by itself — automated
+// email intake is Phase 2 (BRS §7). Someone emailing the desk is recorded here the same
+// way a phone call is.
+export const CHANNELS = ["WEBSITE", "WHATSAPP", "EMAIL", "PHONE", "SYNAPSE"] as const;
 export type Channel = (typeof CHANNELS)[number];
+
+/** How a channel is written in the UI. WhatsApp is the one plain capitalisation gets wrong. */
+const CHANNEL_LABELS: Record<string, string> = { WHATSAPP: "WhatsApp" };
+
+export function channelLabel(code: string): string {
+  return CHANNEL_LABELS[code] ?? code.charAt(0) + code.slice(1).toLowerCase();
+}
 
 /** Chosen in the Application/Segment dropdowns to mean "not listed — let me add it". The
  * server creates the master row; the id itself is resolved there, never trusted from here. */

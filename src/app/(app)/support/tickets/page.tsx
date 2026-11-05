@@ -14,6 +14,7 @@ import TicketFilterRow, { type TicketColumnSpec } from "@/components/support/Tic
 import TicketPager from "@/components/support/TicketPager";
 import TicketDateRange from "@/components/support/TicketDateRange";
 import { describeTicketType, TICKET_TYPES, TICKET_TYPE_LABELS } from "@/lib/ticket-core";
+import { CHANNELS, channelLabel } from "@/lib/ticket-schemas";
 import {
   parseTicketListParams,
   defaultCreatedRange,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/ticket-list-core";
 
 const DEFAULT_STATUS = "ANY_OPEN";
+
 
 export default async function MyTicketsPage({
   searchParams,
@@ -89,13 +91,12 @@ export default async function MyTicketsPage({
       filter: {
         kind: "select",
         param: "channel",
+        // Derived from CHANNELS rather than listed again here: a second copy is how the
+        // filter ends up offering a channel the raise screen cannot produce, or missing one
+        // it can.
         options: [
           { value: "", label: "All" },
-          { value: "SYNAPSE", label: "Synapse" },
-          { value: "PHONE", label: "Phone" },
-          { value: "WHATSAPP", label: "WhatsApp" },
-          { value: "EMAIL", label: "Email" },
-          { value: "WEBSITE", label: "Website" },
+          ...CHANNELS.map((c) => ({ value: c, label: channelLabel(c) })),
         ],
       },
     },
