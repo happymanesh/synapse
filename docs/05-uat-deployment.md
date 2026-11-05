@@ -125,6 +125,39 @@ to pass the message on by hand. The no-op driver deliberately reports **failure*
 success: a system that claims to have emailed someone when nothing left the building is worse
 than one that admits it, because the recipient waits for something that is never coming.
 
+### The start-of-day digest — optional
+
+Each morning Synapse can email every support member their open tickets, longest-waiting
+first, with anything past the response target called out. It needs the mail variables above
+plus a trigger.
+
+| Key | Purpose |
+|---|---|
+| `JOB_TRIGGER_SECRET` | Shared secret for `POST /api/jobs/bod-digest`. **Unset means the route refuses every request** — it fails closed rather than running unauthenticated, because anything that can call it mails the whole desk. Not needed if you trigger the job on the command line instead. |
+
+**Synapse has no scheduler of its own, deliberately.** The trigger is yours to choose, and
+the two entry points do identical work:
+
+    # a command, for Windows Task Scheduler or cron
+    npm run job:bod-digest
+    npm run job:bod-digest -- --dry     # render and report, send nothing
+
+    # or an HTTP call, for a cron service or any external scheduler
+    curl -X POST -H "x-job-key: $JOB_TRIGGER_SECRET" https://<host>/api/jobs/bod-digest
+
+Run it once, early, on a weekday morning. **Prove it with `--dry` first**: that renders every
+digest and reports who would receive what, without sending or recording anything.
+
+**It will not mail anyone twice.** Each send is recorded against a per-person, per-day marker
+in `channel_message` (`purpose = 'BOD_DIGEST'`), so a scheduler that retries, a double-fired
+cron, or two instances starting together all converge on one email per person per day. The
+trade-off: a digest that *failed* is not retried either. To resend, delete that person's
+`BOD_DIGEST` row for the day and run the job again.
+
+Anyone with no open tickets is skipped entirely rather than sent an empty digest.
+Unassigned tickets appear in nobody's digest — they belong to no one yet, so chase them from
+the Triage Queue.
+
 ### Used by the seed only
 
 | Key | Purpose |
@@ -140,7 +173,8 @@ than one that admits it, because the recipient waits for something that is never
 
 **Nothing else is read.** The full list of variables the code touches is exactly:
 `DATABASE_URL`, `DATABASE_URL_READONLY`, `SESSION_SECRET`, `SEED_USER_PASSWORD`, `SEED_DEMO`,
-`MAIL_DRIVER`, `SENDGRID_API_KEY`, `MAIL_FROM`, `MAIL_FROM_NAME`, `MAIL_APP_URL`, `NODE_ENV`.
+`MAIL_DRIVER`, `SENDGRID_API_KEY`, `MAIL_FROM`, `MAIL_FROM_NAME`, `MAIL_APP_URL`,
+`JOB_TRIGGER_SECRET`, `NODE_ENV`.
 
 ---
 

@@ -9,6 +9,7 @@
     "db:deploy": "prisma migrate deploy && prisma db seed",
     "lint": "eslint",
     "test": "tsx --test tests/**/*.test.ts",
+    "job:bod-digest": "tsx --conditions=react-server --env-file=.env scripts/send-bod-digest.ts",
     "hr:ingest": "tsx scripts/hr-ingest.ts",
     "hr:lifecycle": "tsx --conditions=react-server scripts/hr-lifecycle.ts",
     "postinstall": "prisma generate"

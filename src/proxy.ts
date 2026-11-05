@@ -55,7 +55,13 @@ export const config = {
   // Static assets in /public (logos, icons, downloadable docs, etc.) must always be
   // reachable — including by Next's own image optimizer fetching them internally,
   // which happens unauthenticated on pages like /login.
+  //
+  // `api/jobs` is excluded for a different reason: a scheduler has no session, so those
+  // routes authenticate themselves with a shared secret instead. They must therefore fail
+  // closed on their own — see api/jobs/bod-digest, which refuses every request when
+  // JOB_TRIGGER_SECRET is unset rather than running unauthenticated. Anything added under
+  // /api/jobs inherits this exemption and takes on that obligation.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|avif|css|js|pdf)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/jobs|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|avif|css|js|pdf)$).*)",
   ],
 };
