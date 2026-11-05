@@ -1294,6 +1294,18 @@ async function main() {
         });
       }
     }
+
+    // Applied outside the "no items yet" branch so an already-seeded environment picks it
+    // up on the next deploy — the branch above runs once and never again. Scoped to rows
+    // still carrying no default, so an administrator who sets their own window keeps it.
+    //
+    // A token, not a literal date pair: a stored "2026-10-29,2026-11-05" would be right on
+    // the day it was written and wrong every day after. Resolved per render by
+    // `resolveFilterDefault`.
+    await prisma.filterDefinitionItem.updateMany({
+      where: { filterId, componentCode: "SUPPORT_DATE_RANGE", defaultValue: null },
+      data: { defaultValue: "LAST_7_DAYS" },
+    });
   }
 
   const dailyStatsData = {

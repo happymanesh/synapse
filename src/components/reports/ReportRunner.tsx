@@ -7,6 +7,7 @@ import ResultsTable, { type ReportColumnView, type HighlightRuleView } from "./R
 import DrillDownModal from "./DrillDownModal";
 import { useSidebarControl } from "@/components/app-shell/sidebar-control";
 import { formatDate } from "@/lib/report-format";
+import { resolveFilterDefault } from "@/lib/report-defaults-core";
 import { useLanguage } from "@/lib/i18n";
 
 /**
@@ -125,7 +126,8 @@ export default function ReportRunner({
   const [collapsed, setCollapsed] = useState(defaultCollapsed || !!autoShow);
   const [values, setValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
-    for (const item of items) initial[item.componentCode] = item.defaultValue ?? "";
+    for (const item of items)
+      initial[item.componentCode] = resolveFilterDefault(item.defaultValue, new Date());
     return { ...initial, ...initialValues };
   });
   const [dynamicOptions, setDynamicOptions] = useState<Record<number, SelectOption[]>>({});
@@ -211,7 +213,8 @@ export default function ReportRunner({
 
   function handleReset() {
     const initial: Record<string, string> = {};
-    for (const item of items) initial[item.componentCode] = item.defaultValue ?? "";
+    for (const item of items)
+      initial[item.componentCode] = resolveFilterDefault(item.defaultValue, new Date());
     setValues(initial);
     setExceeded(null);
     setError(null);

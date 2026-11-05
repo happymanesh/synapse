@@ -1,5 +1,7 @@
 "use client";
 
+import { QUICK_RANGE_DAYS, lastNDaysRange, toDateInput } from "@/lib/report-defaults-core";
+
 export interface FilterItemView {
   id: number;
   componentCode: string;
@@ -108,7 +110,7 @@ export default function DynamicFilterField({
       ) : type === "DATE" ? (
         <input type="date" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={fieldClass} />
       ) : type === "DATE_RANGE" ? (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="date"
             value={value.split(",")[0] ?? ""}
@@ -125,6 +127,19 @@ export default function DynamicFilterField({
             onChange={(e) => onChange(`${value.split(",")[0] ?? ""},${e.target.value}`)}
             className={fieldClass}
           />
+          {/* Offered on every date range, not just the ticket reports: picking "the last
+              fortnight" from two calendars is the same chore on any report. */}
+          {QUICK_RANGE_DAYS.map((days) => (
+            <button
+              key={days}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(lastNDaysRange(days, new Date()))}
+              className="rounded-md border border-border px-2 py-1 text-xs text-foreground/80 hover:bg-surface disabled:opacity-50"
+            >
+              Last {days} days
+            </button>
+          ))}
         </div>
       ) : type === "NUMBER" ? (
         <input type="number" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={fieldClass} />
@@ -135,8 +150,10 @@ export default function DynamicFilterField({
   );
 }
 
+/** Local today, not UTC. `toISOString()` would return yesterday's date in IST until 05:30,
+ *  which silently made today unpickable every morning. */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return toDateInput(new Date());
 }
 
 function dayAfter(dateStr: string | undefined): string | undefined {
