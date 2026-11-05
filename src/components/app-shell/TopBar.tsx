@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LANGUAGES, useLanguage, type LanguageCode } from "@/lib/i18n";
 import NotificationBell from "./NotificationBell";
 import ChatHubBell from "./ChatHubBell";
@@ -63,9 +63,35 @@ export default function TopBar({
   const { t } = useLanguage();
   const { logSelection } = useMenuUsage();
   const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [profileView, setProfileView] = useState<"menu" | "profile" | "settings">("menu");
   const [searchFocused, setSearchFocused] = useState(false);
+
+  // Close the profile menu on a click anywhere outside it, and on Escape.
+  //
+  // `mousedown`, not `click`: a click fires after mouseup, so a menu that closed on click
+  // would still be open while the press is being handled elsewhere, and any control the
+  // press landed on would be acted upon under a menu that is visibly still there.
+  // The listener is registered only while the menu is open, so the rest of the app pays
+  // nothing for it.
+  useEffect(() => {
+    if (!profileOpen) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setProfileOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [profileOpen]);
 
   const term = searchTerm.trim().toLowerCase();
   const searchMatches =
@@ -232,7 +258,7 @@ export default function TopBar({
 
         <AppSwitcher apps={apps} activeAppCode={activeApp?.code ?? null} newWindow={newWindow} />
 
-        <div className="relative">
+        <div className="relative" ref={profileRef}>
           <button
             type="button"
             onClick={() => {

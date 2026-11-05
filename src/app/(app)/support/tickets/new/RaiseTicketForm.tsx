@@ -37,7 +37,10 @@ export default function RaiseTicketForm({
   raisedAtLabel: string;
 }) {
   const router = useRouter();
-  const [forSomeoneElse, setForSomeoneElse] = useState(false);
+  // Defaults to ticked: this form is used by the support desk far more often than by a
+  // member of staff raising their own ticket, so the common case should need no clicks.
+  // Someone raising for themselves unticks it.
+  const [forSomeoneElse, setForSomeoneElse] = useState(true);
   const [ticketType, setTicketType] = useState<string>("ISSUE");
   const [applicationId, setApplicationId] = useState<string>("");
   const [segmentId, setSegmentId] = useState<string>("");

@@ -765,6 +765,32 @@ async function notifyForward(
   actor: ActorContext
 ): Promise<void> {
   try {
+    const ticketForBell = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { ticketNo: true, subject: true },
+    });
+
+    // The in-app notification comes first and stands on its own. It is the one channel that
+    // cannot be refused by a third party, so it must not be downstream of the email: a
+    // provider outage, an unverified sender or a missing address would otherwise take the
+    // bell down with it, and the assignee would learn nothing from either direction.
+    if (ticketForBell) {
+      try {
+        await prisma.notification.create({
+          data: {
+            senderUid: actor.uid,
+            targetType: "USER",
+            targetUserUid: to.uid,
+            deliveryBell: true,
+            deliveryPopup: false,
+            messageText: `${actor.username} forwarded ticket ${ticketForBell.ticketNo} to you — ${ticketForBell.subject}`,
+          },
+        });
+      } catch (err) {
+        console.error("[notify] forward bell failed:", err instanceof Error ? err.message : err);
+      }
+    }
+
     if (!to.email) {
       await prisma.ticketEvent.create({
         data: {
