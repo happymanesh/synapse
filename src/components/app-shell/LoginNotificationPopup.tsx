@@ -28,7 +28,7 @@ export default function LoginNotificationPopup() {
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {pending.map((n) => (
             <div key={n.id} className="rounded-md border border-border bg-surface p-3">
-              <p className="text-sm text-foreground/90">{n.messageText}</p>
+              <p className="text-sm whitespace-pre-line text-foreground/90">{n.messageText}</p>
               <p className="mt-1 text-xs text-foreground/50">{formatDateTime(n.createdAt)}</p>
             </div>
           ))}

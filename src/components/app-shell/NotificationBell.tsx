@@ -49,7 +49,9 @@ export default function NotificationBell() {
                   key={n.id}
                   className={["border-b border-chrome-border px-3 py-2 last:border-b-0", n.read ? "" : "bg-chrome-surface"].join(" ")}
                 >
-                  <p className="text-sm text-chrome-foreground/90">{n.messageText}</p>
+                  {/* pre-line: notifications may carry line breaks (a forwarded ticket
+                      sends ticket number and subject on their own lines). */}
+                  <p className="text-sm whitespace-pre-line text-chrome-foreground/90">{n.messageText}</p>
                   <p className="mt-1 text-xs text-chrome-foreground/50">{formatDateTime(n.createdAt)}</p>
                 </div>
               ))

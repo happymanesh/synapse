@@ -783,7 +783,10 @@ async function notifyForward(
             targetUserUid: to.uid,
             deliveryBell: true,
             deliveryPopup: false,
-            messageText: `${actor.username} forwarded ticket ${ticketForBell.ticketNo} to you — ${ticketForBell.subject}`,
+            messageText:
+              `Ticket from ${actor.username}.\n` +
+              `Ticket No: ${ticketForBell.ticketNo}\n` +
+              `Subject: ${ticketForBell.subject}`,
           },
         });
       } catch (err) {
