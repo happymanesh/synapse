@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/report-format";
 import { useLanguage } from "@/lib/i18n";
-import { chatHubSupabase } from "@/lib/chat-hub/browser-client";
+import { getChatHubSupabase } from "@/lib/chat-hub/browser-client";
 import type { ChatHubConversationSummary, ChatHubMessage, ChatHubTranscript } from "@/lib/chat-hub/client";
 
 /**
@@ -58,7 +58,13 @@ export default function ChatHubBell() {
   useEffect(() => {
     if (!activeId) return;
 
-    const channel = chatHubSupabase
+    // Null when chat-hub's Supabase project is not configured. The bell still lists
+    // conversations and still sends replies — both go through our own API — it just does
+    // not receive the visitor's follow-ups live.
+    const supabase = getChatHubSupabase();
+    if (!supabase) return;
+
+    const channel = supabase
       .channel(`messages:${activeId}`)
       .on(
         "postgres_changes",
@@ -72,7 +78,7 @@ export default function ChatHubBell() {
       .subscribe();
 
     return () => {
-      chatHubSupabase.removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [activeId]);
 
