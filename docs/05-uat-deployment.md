@@ -118,6 +118,12 @@ sending anything:
 `200` means the host is allowed. `403 The requestor's IP Address is not whitelisted` means it
 is not, and no email will ever leave, whatever the app reports.
 
+**Setting `MAIL_DRIVER=sendgrid` without finishing the rest now stops the app at startup**,
+with a message naming exactly what is missing. That is deliberate: a half-set mail
+configuration used to come up looking healthy while every email silently failed, visible only
+as a `[FAILED]` row in `channel_message`. An unset `MAIL_DRIVER` stays silent and is
+unaffected — the check only fires on a configuration that could not have been intentional.
+
 Leaving these unset is a supported state, not a broken one. Forwarding still works; the
 attempt is recorded in `channel_message` as `TICKET_FORWARDED … [FAILED] No mailer configured
 (MAIL_DRIVER=noop)` and a `NOTIFICATION` event on the ticket tells the forwarding staff member

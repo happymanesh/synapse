@@ -1,4 +1,5 @@
 import "server-only";
+import { describeMailConfigProblems, validateMailConfig } from "./mail-config-core";
 
 /**
  * System email for Synapse.
@@ -46,6 +47,29 @@ export function mailConfig(): MailConfig {
     appUrl: process.env.MAIL_APP_URL ?? "http://localhost:3010",
   };
 }
+
+/**
+ * Refuses a half-configured mailer, once, when this module is first loaded.
+ *
+ * Borrowed from SIHL LMS, which validates the same set as its service boots. The failure it
+ * exists for: MAIL_DRIVER=sendgrid with none of the supporting variables set. The app came
+ * up healthy, forwarding worked, and the only evidence that nothing was being delivered was
+ * a FAILED row in channel_message that nobody reads.
+ *
+ * It throws ONLY when the driver has been explicitly set to sendgrid and left incomplete —
+ * someone asked for mail and did not finish, which is a deployment-time mistake they will
+ * see immediately. An unset MAIL_DRIVER stays silent, so development and CI are unaffected.
+ *
+ * Deliberately narrower than LMS's version, which fails the whole service. Mail here is
+ * secondary — the in-app bell already covers a forward — so this only fires on a
+ * configuration that could not have been intentional.
+ */
+function assertMailConfigured(): void {
+  const message = describeMailConfigProblems(validateMailConfig(mailConfig()));
+  if (message) throw new Error(message);
+}
+
+assertMailConfigured();
 
 /** Masked for logs: enough to identify a recipient, not enough to be a mailing list. */
 export function maskEmail(address: string): string {
