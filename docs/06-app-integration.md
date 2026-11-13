@@ -23,10 +23,10 @@ The application supplies its own screens and its own data. It does not supply id
 
 ---
 
-## 2. The one change Synapse needs first
+## 2. Getting the session across to your app
 
-**This is a prerequisite, not a per-app step.** It is done once, and then every subsequent app
-integrates with no Synapse code change at all.
+**Settle this before you deploy, not after.** Where an app is deployed decides whether it can
+see a Synapse session at all, and the cheapest option (§2.1) constrains the host.
 
 Synapse's session cookie is currently **host-only**:
 
@@ -41,10 +41,31 @@ cookieStore.set(SESSION_COOKIE, session, {
 });
 ```
 
-Without a `domain`, no separate application can see a Synapse session, whatever else it does
-correctly. Two ways forward:
+Without a `domain`, the browser sends this cookie to **Synapse's host and nowhere else**.
 
-### 2.1 Shared parent domain — preferred
+Three ways forward, cheapest first.
+
+### 2.1 Same host, different port — no change at all
+
+**Cookies ignore port numbers** (RFC 6265). A host-only cookie set by Synapse on
+`10.0.0.5:3010` is sent to `10.0.0.5:3447` as well — same host, different app, same cookie.
+
+So if an app is deployed on the **same host** as Synapse, session sharing already works:
+no `domain` change, no handoff, no Synapse code. Both must use the same scheme, because the
+cookie is `secure` in production and an `https` cookie is not sent to an `http` origin.
+
+This is the fastest route to a working UAT, and it is how Synapse and workPulse share a
+session on a developer machine today (`localhost:3010` and `localhost:3200`).
+
+Its limit is that it does not scale: every app on one host, one certificate, one blast
+radius. Use it to get UAT working, then move to §2.2 for production.
+
+> **An IP address cannot carry a cookie `domain`.** Browsers reject a `Domain` attribute on
+> an IP host, so §2.2 is unavailable to an app deployed at `https://192.168.x.x:port`. An
+> app on an IP must either sit on Synapse's own host (§2.1) or be given a hostname under the
+> parent domain before §2.2 can work. Decide the hostname **before** you deploy.
+
+### 2.2 Shared parent domain — preferred for production
 
 Deploy every app under one registrable domain and set the cookie domain to the parent:
 
@@ -60,7 +81,7 @@ no redirect, no token exchange, no handshake to get wrong.
 **Cost:** changing the cookie invalidates every existing session on deploy. Everyone signs in
 once more. Do it during a quiet window, not alongside a release people are watching.
 
-### 2.2 Signed handoff — only if 2.1 is impossible
+### 2.3 Signed handoff — only if 2.1 and 2.2 are both impossible
 
 Synapse mints a short-lived (60s), single-use handoff token which the app exchanges for its
 own session. More moving parts, a replay surface to defend, and **every app has to implement
@@ -113,7 +134,7 @@ only with applications trusted at that level, rotate it across all of them toget
 never place it anywhere it could be read by a browser.
 
 If the number of integrated apps grows beyond a handful, move to the signed-handoff model
-(§2.2) where each app holds its own secret, rather than widening the blast radius of one key.
+(§2.3) where each app holds its own secret, rather than widening the blast radius of one key.
 
 ---
 
@@ -221,14 +242,55 @@ carries `password_hash`, and the database also holds the full audit log. A blank
 `SELECT`-everywhere role hands an application every password hash on the platform to answer
 a boolean question.
 
-In preference order:
+### 7.1 Available today — a column-restricted read-only role
 
-1. **A narrow service endpoint** — e.g. `GET /api/identity/active?userUid=…` returning
-   `{ active: boolean }`, service-authenticated. Minimum disclosure, and the calls can be
-   logged and rate-limited. Preferred.
-2. **A read-only role with column-level grants** that exclude `password_hash`, if a direct
-   connection is genuinely required for volume or latency reasons.
-3. A blanket read-only role — **not acceptable** for an application outside Synapse.
+This is what to build against. A read-only Postgres login on the Synapse database, granted
+**specific columns**, not whole tables:
+
+```sql
+CREATE ROLE clientbiz_reader LOGIN PASSWORD '…';
+GRANT CONNECT ON DATABASE sihl_synapse TO clientbiz_reader;
+GRANT USAGE ON SCHEMA public TO clientbiz_reader;
+
+-- Only the columns an active-user check needs. password_hash is deliberately absent.
+GRANT SELECT (uid, username, full_name, email, employee_code, is_active, is_suspended)
+  ON user_details TO clientbiz_reader;
+GRANT SELECT (user_uid, role_code, is_active) ON user_role_map TO clientbiz_reader;
+GRANT SELECT (role_code, menu_code, company_code, hierarchy_code, is_active)
+  ON role_menu_map TO clientbiz_reader;
+GRANT SELECT (menu_code, app_code, is_active) ON menu_master TO clientbiz_reader;
+```
+
+Column-level grants matter because the exposure is the grant, not the query. A role with
+blanket `SELECT` can read every password hash on the platform regardless of what the
+application's own SQL happens to ask for.
+
+`SynapseDirectoryService` in workPulse (`apps/api/src/modules/auth/synapse-directory.service.ts`)
+is a working implementation of exactly this: parameterised SELECTs, fails closed when the
+user is missing, inactive, suspended or the directory is unreachable, and reads role codes
+fresh rather than trusting the token. Copy it.
+
+### 7.2 Proposed, NOT BUILT — a service endpoint
+
+> **This does not exist.** There is no `/api/identity` route in Synapse today. It is
+> recorded here as a design direction, not an available service. Do not build against it,
+> and do not ask for its base URL — there isn't one.
+
+A narrower alternative would be a single endpoint answering the real question in one call:
+
+```
+GET /api/identity/authorize?userUid=<n>&menuCode=<CODE>
+  → { "active": true, "authorized": true }
+```
+
+Minimum disclosure, no database credentials handed out, and the calls can be logged and
+rate-limited. Worth building once there are several integrated apps; until it exists, use
+§7.1.
+
+### 7.3 Never
+
+A blanket read-only role — `GRANT SELECT ON ALL TABLES` — for an application outside
+Synapse.
 
 `prismaReadOnly` is sometimes cited as the precedent here. It is not: that is a second
 connection *inside* Synapse used to execute report SQL, not an external access contract.
