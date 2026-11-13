@@ -285,8 +285,12 @@ async function main() {
       appCode: "CLIENTBIZ",
       menuName: "Clientwise Business Report",
       menuType: "EXTERNAL",
-      externalUrl: CLIENTBIZ_URL,
-      isActive: clientbizConfigured,
+      // Only overwrite the URL when one is actually configured. Without this guard a
+      // deploy with CLIENTBIZ_URL unset would blank a URL an administrator had set by
+      // hand in Menu Master and silently deactivate a working menu — the seed undoing
+      // the sanctioned way of configuring it. The environment wins when it has an
+      // opinion; otherwise whatever is already there is left alone.
+      ...(clientbizConfigured ? { externalUrl: CLIENTBIZ_URL, isActive: true } : {}),
     },
     create: {
       menuCode: "CLIENTBIZ",
