@@ -251,6 +251,92 @@ async function main() {
     });
   }
 
+  // --- Clientwise Business Report (CLIENTBIZ): a separately deployed report app,
+  // federated to Synapse for identity. EXTERNAL rather than ROUTE — the pages live in
+  // another application, not in this one.
+  //
+  // The URL is environment-specific and must not be hardcoded: UAT runs it on the same
+  // host as Synapse, which is what makes the session cookie reach it at all (cookies
+  // ignore ports — see docs/06-app-integration.md §2.1).
+  //
+  // With no URL configured the menu is seeded INACTIVE rather than pointing somewhere
+  // wrong. A dead link that looks live is worse than a missing one: the admin can see
+  // the row in Menu Master and why it is off, instead of users reporting a broken app.
+  const CLIENTBIZ_URL = process.env.CLIENTBIZ_URL ?? "";
+  const clientbizConfigured = CLIENTBIZ_URL !== "";
+
+  await prisma.appMaster.upsert({
+    where: { appCode: "CLIENTBIZ" },
+    update: { appName: "Client Business", icon: "📊", displayOrder: 5, isActive: true },
+    create: {
+      appCode: "CLIENTBIZ",
+      appName: "Client Business",
+      companyCode: "SIHL",
+      icon: "📊",
+      description: "Clientwise business reporting for management.",
+      displayOrder: 5,
+      isActive: true,
+    },
+  });
+
+  await prisma.menuMaster.upsert({
+    where: { menuCode: "CLIENTBIZ" },
+    update: {
+      appCode: "CLIENTBIZ",
+      menuName: "Clientwise Business Report",
+      menuType: "EXTERNAL",
+      externalUrl: CLIENTBIZ_URL,
+      isActive: clientbizConfigured,
+    },
+    create: {
+      menuCode: "CLIENTBIZ",
+      appCode: "CLIENTBIZ",
+      parentMenuCode: null,
+      menuName: "Clientwise Business Report",
+      icon: "📊",
+      menuType: "EXTERNAL",
+      externalUrl: CLIENTBIZ_URL,
+      level: 1,
+      displayOrder: 10,
+      companyCode: "SIHL",
+      hierarchyCode: "0000",
+      isActive: clientbizConfigured,
+    },
+  });
+
+  // Management only, per SIHL's decision. "Management" is hierarchy 0000, which holds two
+  // roles — there is no role of that name — so both are granted.
+  //
+  // A grant matches the USER'S own hierarchy, so one row per hierarchy is required.
+  // Note 0000 currently has no users: those two grants are inert until management
+  // accounts are placed in that hierarchy. DeptHead at 0100 is where the staff are today.
+  const CLIENTBIZ_GRANTS: { roleCode: string; hierarchyCode: string }[] = [
+    { roleCode: "ADMIN", hierarchyCode: "9999" },
+    { roleCode: "Audit", hierarchyCode: "0000" },
+    { roleCode: "Integrated_Service", hierarchyCode: "0000" },
+    { roleCode: "DeptHead", hierarchyCode: "0100" },
+  ];
+  for (const g of CLIENTBIZ_GRANTS) {
+    await prisma.roleMenuMap.upsert({
+      where: {
+        roleCode_menuCode_companyCode_hierarchyCode: {
+          roleCode: g.roleCode,
+          menuCode: "CLIENTBIZ",
+          companyCode: "SIHL",
+          hierarchyCode: g.hierarchyCode,
+        },
+      },
+      update: { isActive: true },
+      create: {
+        roleCode: g.roleCode,
+        menuCode: "CLIENTBIZ",
+        companyCode: "SIHL",
+        hierarchyCode: g.hierarchyCode,
+        isActive: true,
+      },
+    });
+  }
+
   // Two sample apps so the app switcher is meaningful out of the box. Administration
   // menus deliberately keep appCode = null (global) — scoping them to one app would let
   // an admin switch app and lose access to App Master itself.
