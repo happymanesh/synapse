@@ -3,7 +3,7 @@
 **Applies to:** Synapse platform including the Issue Tracker & Service Request module (BRS
 Phase 1, steps 0–8).
 **Repository:** `https://github.com/happymanesh/synapse` (private) — **one repository, not two.**
-**Last updated:** 17-Sep-2026
+**Last updated:** 13-Nov-2026
 
 ---
 
@@ -99,7 +99,7 @@ One email exists in this release: the notice sent to a member of staff when a ti
 | `SENDGRID_API_KEY` | `SG.…` | SendGrid API key with Mail Send permission. |
 | `MAIL_FROM` | e.g. `no-reply@sihl.com` | Sender address. **Must be a verified sender or domain in the SendGrid account**, or SendGrid rejects every message with a 403. |
 | `MAIL_FROM_NAME` | `SIHL Synapse` | Display name. Defaults to `SIHL Synapse`. |
-| `MAIL_APP_URL` | `https://<uat-host>` | Base URL for the "Open ticket" link in the email. Defaults to `http://localhost:3010`, which is useless in a deployed environment — **set it, or every email links back to nowhere.** |
+| `MAIL_APP_URL` | `https://<uat-host>`; on Railway production, the URL in §3.7 | Base URL for the "Open ticket" link in the email. Defaults to `http://localhost:3010`, which is useless in a deployed environment — **set it, or every email links back to nowhere.** |
 
 **The sending host's IP must be on SendGrid's allowlist.** The SIHL SendGrid account has IP
 Access Management switched on, so it refuses API calls from any address not on its list — the
@@ -260,6 +260,44 @@ automatically on every start. That is intentional for a single-instance deployme
 steps are idempotent. **If UAT runs more than one instance**, remove `db:deploy` from `start`
 and run it as a separate release step instead — concurrent container starts would otherwise
 race on the same migration.
+
+### 3.7 The Railway production environment
+
+The hosted environment is a Railway project. Recorded here because nothing in the repository
+names it — there is no `railway.json`, `Dockerfile` or `nixpacks.toml`; the configuration
+lives in Railway's dashboard, so the code gives no clue where it runs.
+
+| | |
+|---|---|
+| Project | `synapse` (workspace: happymanesh's Projects) |
+| Service | `synapse-app`, region `sfo` |
+| URL | `https://synapse-app-production-bec2.up.railway.app` |
+
+This is also the value `MAIL_APP_URL` must be set to in that environment (§2), or every
+"Open ticket" link in an outgoing email points at `localhost:3010`.
+
+#### Deployment is manual. Pushing to `main` does not deploy.
+
+**Railway is not connected to auto-deploy from the `main` branch.** Verified on 13-Nov-2026:
+three pushes to `main` that day produced no build, queued or otherwise, and the most recent
+deployment was eight days earlier.
+
+The practical consequences, both of which have caught people out:
+
+- **Pushing is safe.** `git push` moves code to GitHub and changes nothing that is running.
+  No migration runs, no seed runs, no restart.
+- **Production can sit well behind `main` without anyone noticing.** There is no signal that
+  a release is pending — the code is on GitHub, the site is up, and the two simply differ.
+  Check what is actually deployed before assuming a fix is live.
+
+To see the state, and to deploy, from a linked checkout:
+
+    railway status              # service, URL and current deployment
+    railway deployment list     # history, with timestamps
+    railway up                  # deploys the current directory
+
+Remember §3.6: `start` runs `db:deploy`, so **a deployment applies migrations and re-runs the
+seed**. That is the moment schema changes reach production, not the push.
 
 ---
 
