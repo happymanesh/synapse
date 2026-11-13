@@ -320,7 +320,29 @@ async function main() {
     { roleCode: "Integrated_Service", hierarchyCode: "0000" },
     { roleCode: "DeptHead", hierarchyCode: "0100" },
   ];
+  // Grant only to roles that actually exist here. Audit, Integrated_Service and DeptHead
+  // are business roles an administrator creates — the seed does not invent them, and they
+  // are absent in a fresh environment.
+  //
+  // This guard exists because its absence took production down: `start` is
+  // `db:deploy && next start`, so a foreign-key violation in the seed means the app never
+  // boots at all. A missing role must degrade to a skipped grant, never to an outage.
+  const clientbizRoles = new Set(
+    (
+      await prisma.roleMaster.findMany({
+        where: { roleCode: { in: CLIENTBIZ_GRANTS.map((g) => g.roleCode) } },
+        select: { roleCode: true },
+      })
+    ).map((r) => r.roleCode)
+  );
   for (const g of CLIENTBIZ_GRANTS) {
+    if (!clientbizRoles.has(g.roleCode)) {
+      console.warn(
+        `[seed] CLIENTBIZ grant skipped: role "${g.roleCode}" does not exist in this environment. ` +
+          `Create it in Administration > Role, then re-run the seed or add the grant there.`
+      );
+      continue;
+    }
     await prisma.roleMenuMap.upsert({
       where: {
         roleCode_menuCode_companyCode_hierarchyCode: {
