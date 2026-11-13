@@ -104,8 +104,9 @@ authenticated by Synapse before they reach the application.
 
 ### 3.2 Read the session, and verify it
 
-The cookie is `synapse_session`, an **HS256 JWT** signed with a `SESSION_SECRET` shared with
-Synapse. Payload:
+The cookie is `synapse_session`, an **RS256 JWT**. Synapse signs it with a private key it
+never shares; you verify it with `SESSION_PUBLIC_KEY`, which is **not a secret** — it can be
+emailed, committed or published. Payload:
 
 | Claim | Type | Meaning |
 |---|---|---|
@@ -126,17 +127,16 @@ Synapse. Payload:
 **Verify the signature. Never decode unverified.** A JWT is readable by anyone holding it; only
 verification makes it trustworthy.
 
-### 3.2.1 What sharing `SESSION_SECRET` means
+### 3.2.1 Pin the algorithm
 
-The secret is not a read credential. **Any application holding it can mint a valid Synapse
-session for any user**, because the same key that verifies a token also signs one. Share it
-only with applications trusted at that level, rotate it across all of them together, and
-never place it anywhere it could be read by a browser.
+Always pass `algorithms: ["RS256"]` to your verifier. Without that pin a forged token can
+declare `alg: none`, or declare `HS256` and have the verifier treat the **public** key as a
+shared HMAC secret — and the public key is, by design, something everyone has. Both are
+long-standing JWT confusion attacks and both are defeated by pinning.
 
-If the number of integrated apps grows beyond a handful, move to the signed-handoff model
-(§2.3) where each app holds its own secret, rather than widening the blast radius of one key.
-
----
+Synapse ran on a shared HS256 secret until 13-Nov-2026. That worked, but the key that
+verified a session also signed one, so every integrated app could mint a valid session for
+any user. RS256 ends that: hold the public key, verify everything, forge nothing.
 
 ### 3.3 Re-check that the user is still active
 

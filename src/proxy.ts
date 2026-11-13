@@ -6,10 +6,11 @@ import {
   PASSWORD_CHANGE_REQUIRED_BODY,
   SESSION_EXPIRED_BODY,
 } from "@/lib/auth-core";
+import { getSessionPublicKey, SESSION_JWT_ALG } from "@/lib/session-keys";
 
 const SESSION_COOKIE = "synapse_session";
 
-const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET);
+
 
 /** Whether the request carries a valid session, and whether that session is still waiting
  * for a first-login password change (a claim set at sign-in, see api/auth/login). */
@@ -17,7 +18,9 @@ async function readSession(request: NextRequest): Promise<{ authenticated: boole
   const cookie = request.cookies.get(SESSION_COOKIE)?.value;
   if (!cookie) return { authenticated: false, mustChangePassword: false };
   try {
-    const { payload } = await jwtVerify(cookie, encodedKey, { algorithms: ["HS256"] });
+    const { payload } = await jwtVerify(cookie, await getSessionPublicKey(), {
+      algorithms: [SESSION_JWT_ALG],
+    });
     return { authenticated: true, mustChangePassword: payload.mustChangePassword === true };
   } catch {
     return { authenticated: false, mustChangePassword: false };

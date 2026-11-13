@@ -41,7 +41,8 @@ are creating these values, not copying them from anywhere.
 | Key | Example / format | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://user:pass@host:5432/sihl_synapse_uat` | Main connection. Read by the app, Prisma CLI and the seed. |
-| `SESSION_SECRET` | 64 hex characters | Signs the session JWT. **Generate a new one for UAT — do not reuse production's.** |
+| `SESSION_PRIVATE_KEY` | base64 PKCS8 PEM | Signs the session JWT (RS256). **Synapse only — never share it.** Generate with `node scripts/generate-session-keys.mjs`, a separate pair per environment. |
+| `SESSION_PUBLIC_KEY` | base64 SPKI PEM | Verifies the session JWT. **Not a secret** — give this to every integrated app; it allows verification and nothing else. |
 
 `SESSION_SECRET` is read at module load in `src/lib/session.ts` and **throws if missing**.
 That is deliberate: a missing secret fails loudly at boot rather than silently issuing tokens
@@ -178,7 +179,7 @@ the Triage Queue.
 | `PORT` | Next.js binds this if present. Managed hosts inject it. |
 
 **Nothing else is read.** The full list of variables the code touches is exactly:
-`DATABASE_URL`, `DATABASE_URL_READONLY`, `SESSION_SECRET`, `SEED_USER_PASSWORD`, `SEED_DEMO`,
+`DATABASE_URL`, `DATABASE_URL_READONLY`, `SESSION_PRIVATE_KEY`, `SESSION_PUBLIC_KEY`, `SEED_USER_PASSWORD`, `SEED_DEMO`,
 `MAIL_DRIVER`, `SENDGRID_API_KEY`, `MAIL_FROM`, `MAIL_FROM_NAME`, `MAIL_APP_URL`,
 `JOB_TRIGGER_SECRET`, `NODE_ENV`.
 

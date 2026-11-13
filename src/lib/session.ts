@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { getSessionPrivateKey, getSessionPublicKey, SESSION_JWT_ALG } from "@/lib/session-keys";
 import { prisma } from "@/lib/db";
 import { accountBlock } from "@/lib/auth-core";
 
@@ -21,23 +22,22 @@ export interface SessionPayload {
 const SESSION_COOKIE = "synapse_session";
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 hours
 
-const secretKey = process.env.SESSION_SECRET;
-if (!secretKey) {
-  throw new Error("SESSION_SECRET environment variable is not set.");
-}
-const encodedKey = new TextEncoder().encode(secretKey);
-
 async function encrypt(payload: SessionPayload): Promise<string> {
   return new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: SESSION_JWT_ALG })
     .setIssuedAt()
     .setExpirationTime("8h")
-    .sign(encodedKey);
+    .sign(await getSessionPrivateKey());
 }
 
 async function decrypt(session: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(session, encodedKey, { algorithms: ["HS256"] });
+    // Verified with the PUBLIC key, and `algorithms` is pinned: without that pin a token
+    // could declare `alg: none`, or an HS256 token could be verified against the public
+    // key treated as a shared secret — both classic JWT confusion attacks.
+    const { payload } = await jwtVerify(session, await getSessionPublicKey(), {
+      algorithms: [SESSION_JWT_ALG],
+    });
     return payload as unknown as SessionPayload;
   } catch {
     return null;
